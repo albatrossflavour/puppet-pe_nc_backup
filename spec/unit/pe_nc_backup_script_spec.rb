@@ -59,6 +59,20 @@ describe 'pe_nc_backup script' do
       expect(log_io.string).to include("https://#{certname}:#{classifier.port}/classifier-api/v1/groups")
     end
 
+    it 'falls back to puppet config print certname when no certname is set' do
+      bindir = File.join(tmp, 'bin')
+      FileUtils.mkdir_p(bindir)
+      File.write(File.join(bindir, 'puppet'), "#!/bin/sh\necho #{certname}\n")
+      File.chmod(0o755, File.join(bindir, 'puppet'))
+      expect(run_backup(config.merge('certname' => nil, 'puppet_bindir' => bindir))).to eq(0)
+      expect(classifier.requests.first[:client_cn]).to eq(certname)
+    end
+
+    it 'fails when the certname cannot be determined' do
+      expect(run_backup(config.merge('certname' => nil, 'puppet_bindir' => File.join(tmp, 'nowhere')))).to eq(1)
+      expect(stdout_io.string).to include('Unable to determine the certname')
+    end
+
     it 'does not leave temporary files behind' do
       run_backup
       expect(Dir.children(path).sort).to eq(['repo'])

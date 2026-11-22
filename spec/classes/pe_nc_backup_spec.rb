@@ -13,6 +13,7 @@ describe 'pe_nc_backup' do
   on_supported_os.each do |os, os_facts|
     context "on #{os}" do
       let(:facts) { os_facts }
+      let(:node) { 'primary.example.com' }
 
       context 'with defaults' do
         it { is_expected.to compile.with_all_deps }
@@ -51,6 +52,7 @@ describe 'pe_nc_backup' do
         it 'bakes the default settings into the script' do
           expect(script_config(catalogue)).to include(
             'path' => '/opt/pe_nc_backup',
+            'certname' => 'primary.example.com',
             'ssl_dir' => '/etc/puppetlabs/puppet/ssl',
             'classifier_host' => nil,
             'classifier_port' => 4433,
@@ -106,6 +108,16 @@ describe 'pe_nc_backup' do
         end
       end
 
+      context 'with a certname that differs from the node name' do
+        let(:params) { { certname: 'puppet.internal.example.com' } }
+
+        it { is_expected.to compile.with_all_deps }
+
+        it 'bakes the certname into the script' do
+          expect(script_config(catalogue)).to include('certname' => 'puppet.internal.example.com')
+        end
+      end
+
       context 'with manage_ncio' do
         let(:params) { { manage_ncio: true } }
 
@@ -120,6 +132,7 @@ describe 'pe_nc_backup' do
           { classifier_host: 'not a host' },
           { classifier_timeout: 0 },
           { manage_ncio: 'yes' },
+          { certname: '' },
           { log_level: 'verbose' },
         ].each do |bad|
           context "with #{bad}" do

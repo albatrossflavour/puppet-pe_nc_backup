@@ -24,6 +24,7 @@ describe 'pe_nc_backup', type: :class do
   let(:base_params) do
     {
       path: path,
+      certname: 'localhost',
       ssl_dir: classifier.ssl_dir,
       classifier_port: classifier.port,
       classifier_timeout: 5,
@@ -71,10 +72,9 @@ describe 'pe_nc_backup', type: :class do
     defined?(Bundler) ? Bundler.with_unbundled_env(&block) : yield
   end
 
-  # Runs the script the way cron does (with the backup path as the only
-  # argument) plus the certname, as the old script allowed.
+  # Runs the script the way cron does, with the backup path as the only argument.
   def backup(label)
-    out, status = clean_env { Open3.capture2e(env, interpreter, script, path, 'localhost') }
+    out, status = clean_env { Open3.capture2e(env, interpreter, script, path) }
     if ENV['E2E_VERBOSE']
       puts "\n--- #{label}: exit #{status.exitstatus}, #{commits} commit(s), interpreter #{interpreter}"
       puts out.lines.map { |l| "    #{l}" }.join

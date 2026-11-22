@@ -17,6 +17,8 @@
 # @param stdout_log Whether to enable the STDOUT logger.
 # @param cron_hour The hour for the cron job.
 # @param cron_minute The minute for the cron job.
+# @param certname The certname of the PE primary server, which names the certificate and key the backup
+#   authenticates with. Set this when the certname is not the node's own, for example when it differs from the FQDN.
 # @param classifier_host The host serving the node classifier API. Defaults to the certname, which suits a
 #   standard install where the console services run on the primary server.
 # @param classifier_port The port of the node classifier API.
@@ -36,6 +38,7 @@ class pe_nc_backup (
   Integer[1, 65535]                               $classifier_port    = 4433,
   Integer[1]                                      $classifier_timeout = 60,
   Boolean                                         $manage_ncio        = false,
+  String[1]                                       $certname           = $trusted['certname'],
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
@@ -56,6 +59,7 @@ class pe_nc_backup (
       content => epp('pe_nc_backup/pe_nc_backup.epp', {
         config => {
           path             => $path,
+          certname         => $certname,
           ssl_dir          => $ssl_dir,
           classifier_host  => $classifier_host,
           classifier_port  => $classifier_port,
