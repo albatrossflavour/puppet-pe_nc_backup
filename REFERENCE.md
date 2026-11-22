@@ -58,6 +58,7 @@ The following parameters are available in the `pe_nc_backup` class:
 * [`classifier_host`](#-pe_nc_backup--classifier_host)
 * [`classifier_port`](#-pe_nc_backup--classifier_port)
 * [`classifier_timeout`](#-pe_nc_backup--classifier_timeout)
+* [`manage_git`](#-pe_nc_backup--manage_git)
 * [`manage_ncio`](#-pe_nc_backup--manage_ncio)
 
 ##### <a name="-pe_nc_backup--path"></a>`path`
@@ -227,6 +228,15 @@ Data type: `Integer[1]`
 Seconds to wait when connecting to and reading from the node classifier API.
 
 Default value: `60`
+
+##### <a name="-pe_nc_backup--manage_git"></a>`manage_git`
+
+Data type: `Boolean`
+
+Whether to install the git package, which the backup repo needs. Leave it off if git is
+managed elsewhere. It uses `stdlib::ensure_packages`, so it does not clash with another plain declaration.
+
+Default value: `false`
 
 ##### <a name="-pe_nc_backup--manage_ncio"></a>`manage_ncio`
 

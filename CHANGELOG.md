@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - `certname` for primaries whose certname is not their FQDN (#10)
 - `schedule_type => 'systemd'` runs the backup from a systemd timer (`on_calendar`) instead of cron, which avoids needing a `cron.allow` entry on hardened hosts and works on hosts with no cron installed
 - `user` and `group` set who owns and runs the backup
+- `manage_git` installs git before the repo is created
 - `exclude_groups`, `exclude_environments`, and `strip_fields` keep groups and fields you do not care about out of the history
 - `split_files` writes one file per group under `groups/`
 - Commit messages list the groups added, changed, and removed

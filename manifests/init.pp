@@ -50,6 +50,8 @@
 #   standard install where the console services run on the primary server.
 # @param classifier_port The port of the node classifier API.
 # @param classifier_timeout Seconds to wait when connecting to and reading from the node classifier API.
+# @param manage_git Whether to install the git package, which the backup repo needs. Leave it off if git is
+#   managed elsewhere. It uses `stdlib::ensure_packages`, so it does not clash with another plain declaration.
 # @param manage_ncio Whether to install the ncio gem. The backup no longer uses it, but `ncio restore` is
 #   still a convenient way to restore a backup.
 #
@@ -73,6 +75,7 @@ class pe_nc_backup (
   Optional[Stdlib::Host]                          $classifier_host      = undef,
   Integer[1, 65535]                               $classifier_port      = 4433,
   Integer[1]                                      $classifier_timeout   = 60,
+  Boolean                                         $manage_git           = false,
   Boolean                                         $manage_ncio          = false,
 ) {
   $git_repo_dir = "${path}/repo"
@@ -112,6 +115,11 @@ class pe_nc_backup (
         },
       })
     ;
+  }
+
+  if $manage_git {
+    stdlib::ensure_packages(['git'])
+    Package['git'] -> Vcsrepo[$git_repo_dir]
   }
 
   vcsrepo { $git_repo_dir:

@@ -27,7 +27,7 @@ The groups are written as prettified JSON in the same shape `ncio backup` produc
 
 ### Setup Requirements
 
-* git must be installed on the PE primary server running `pe_nc_backup`
+* git must be installed on the PE primary server running `pe_nc_backup`. Set `manage_git => true` to have the module install it
 * the backup runs as `pe-puppet` by default, which needs to read the primary's certificate and private key in `/etc/puppetlabs/puppet/ssl`
 
 ### Beginning with pe_nc_backup

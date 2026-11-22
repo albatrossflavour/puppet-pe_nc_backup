@@ -39,6 +39,7 @@ describe 'pe_nc_backup' do
         it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with(ensure: 'present', provider: 'git', user: 'pe-puppet').that_requires('File[/opt/pe_nc_backup]') }
 
         it { is_expected.not_to contain_package('ncio') }
+        it { is_expected.not_to contain_package('git') }
 
         it {
           is_expected.to contain_cron('pe_nc_backup').with(
@@ -242,6 +243,21 @@ describe 'pe_nc_backup' do
         it { expect(script_config(catalogue)).to include('split_files' => true) }
       end
 
+      context 'with manage_git' do
+        let(:params) { { manage_git: true } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_package('git').with_ensure('installed').that_comes_before('Vcsrepo[/opt/pe_nc_backup/repo]') }
+      end
+
+      context 'with manage_git when git is already declared elsewhere' do
+        let(:pre_condition) { "package { 'git': ensure => installed }" }
+        let(:params) { { manage_git: true } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_package('git').that_comes_before('Vcsrepo[/opt/pe_nc_backup/repo]') }
+      end
+
       context 'with manage_ncio' do
         let(:params) { { manage_ncio: true } }
 
@@ -264,6 +280,7 @@ describe 'pe_nc_backup' do
           { strip_fields: [''] },
           { exclude_environments: 'rolling' },
           { split_files: 'true' },
+          { manage_git: 'yes' },
           { log_level: 'verbose' },
         ].each do |bad|
           context "with #{bad}" do
