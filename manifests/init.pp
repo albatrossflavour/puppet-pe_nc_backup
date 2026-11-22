@@ -166,9 +166,14 @@ class pe_nc_backup (
       subscribe => File[$service_file, $timer_file],
     }
 
-    cron { 'pe_nc_backup':
-      ensure => absent,
-      user   => $user,
+    # Removes the job an earlier cron schedule left behind, without the cron
+    # type, so hosts with no cron installed (common under CIS) still work. The
+    # onlyif fails, and nothing runs, when there is no crontab or no such job.
+    exec { 'pe_nc_backup remove cron job':
+      command  => "current=\$(crontab -u ${user} -l) && printf '%s\\n' \"\$current\" | awk '/^# Puppet Name: pe_nc_backup\$/ { skip = 1; next } skip { skip = 0; next } { print }' | crontab -u ${user} -",
+      onlyif   => "crontab -u ${user} -l 2>/dev/null | grep -qx '# Puppet Name: pe_nc_backup'",
+      provider => shell,
+      path     => ['/usr/bin', '/bin'],
     }
   } else {
     cron { 'pe_nc_backup':

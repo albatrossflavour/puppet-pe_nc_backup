@@ -64,6 +64,7 @@ describe 'pe_nc_backup' do
         end
 
         it { is_expected.not_to contain_service('pe_nc_backup.timer') }
+        it { is_expected.not_to contain_exec('pe_nc_backup remove cron job') }
 
         it 'bakes the default settings into the script' do
           expect(script_config(catalogue)).to include(
@@ -122,7 +123,16 @@ describe 'pe_nc_backup' do
         let(:params) { { schedule_type: 'systemd' } }
 
         it { is_expected.to compile.with_all_deps }
-        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', user: 'pe-puppet') }
+        it 'declares no cron resources, so a host without cron can use it' do
+          expect(catalogue.resources.map(&:type)).not_to include('Cron')
+        end
+
+        it {
+          is_expected.to contain_exec('pe_nc_backup remove cron job').with(
+            provider: 'shell',
+            onlyif: "crontab -u pe-puppet -l 2>/dev/null | grep -qx '# Puppet Name: pe_nc_backup'",
+          )
+        }
         it { is_expected.not_to contain_exec('pe_nc_backup disable timer') }
 
         it {
@@ -162,7 +172,7 @@ describe 'pe_nc_backup' do
         it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.service').with_content(%r{^User=ncbackup\nGroup=ncbackup\nExecStart=/srv/nc/bin/pe_nc_backup /srv/nc$}) }
         it { is_expected.to contain_file('/srv/nc').with(owner: 'ncbackup', group: 'ncbackup') }
         it { is_expected.to contain_vcsrepo('/srv/nc/repo').with_user('ncbackup') }
-        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', user: 'ncbackup') }
+        it { is_expected.to contain_exec('pe_nc_backup remove cron job').with_command(%r{crontab -u ncbackup -l\).*crontab -u ncbackup -\z}) }
       end
 
       context 'with cron scheduling and a custom user' do
@@ -179,7 +189,7 @@ describe 'pe_nc_backup' do
         let(:params) { { schedule_type: 'systemd', cron_hour: '3', cron_minute: '0' } }
 
         it { is_expected.to compile.with_all_deps }
-        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', hour: nil, minute: nil) }
+        it { is_expected.not_to contain_cron('pe_nc_backup') }
       end
 
       context 'with a remote classifier' do

@@ -71,7 +71,7 @@ class { 'pe_nc_backup':
 }
 ```
 
-This installs `pe_nc_backup.service` and `pe_nc_backup.timer` and removes the cron job. Setting `schedule_type` back to `cron` disables the timer and removes the units. The script's stdout goes to the journal, so `journalctl -u pe_nc_backup` shows each run.
+This installs `pe_nc_backup.service` and `pe_nc_backup.timer` and removes the cron job if an earlier release left one. It doesn't need cron to be installed. Setting `schedule_type` back to `cron` disables the timer and removes the units. The script's stdout goes to the journal, so `journalctl -u pe_nc_backup` shows each run.
 
 ### Reducing noise
 
