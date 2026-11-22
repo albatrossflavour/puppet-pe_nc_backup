@@ -42,3 +42,4 @@
 /.sync.yml
 /.devcontainer/
 /.github/
+/.markdownlint-cli2.yaml

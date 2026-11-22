@@ -18,10 +18,21 @@ Main entry point to pe_nc_backup
 
 #### Examples
 
-##### 
+##### Back up every five minutes with cron, as earlier releases did
 
 ```puppet
 include pe_nc_backup
+```
+
+##### Run from a systemd timer, with one file per group and less noise
+
+```puppet
+class { 'pe_nc_backup':
+  schedule_type => 'systemd',
+  on_calendar   => '*:0/15',
+  split_files   => true,
+  strip_fields  => ['serial_number', 'last_edited'],
+}
 ```
 
 #### Parameters
@@ -35,6 +46,18 @@ The following parameters are available in the `pe_nc_backup` class:
 * [`stdout_log`](#-pe_nc_backup--stdout_log)
 * [`cron_hour`](#-pe_nc_backup--cron_hour)
 * [`cron_minute`](#-pe_nc_backup--cron_minute)
+* [`schedule_type`](#-pe_nc_backup--schedule_type)
+* [`on_calendar`](#-pe_nc_backup--on_calendar)
+* [`user`](#-pe_nc_backup--user)
+* [`group`](#-pe_nc_backup--group)
+* [`exclude_groups`](#-pe_nc_backup--exclude_groups)
+* [`strip_fields`](#-pe_nc_backup--strip_fields)
+* [`split_files`](#-pe_nc_backup--split_files)
+* [`certname`](#-pe_nc_backup--certname)
+* [`classifier_host`](#-pe_nc_backup--classifier_host)
+* [`classifier_port`](#-pe_nc_backup--classifier_port)
+* [`classifier_timeout`](#-pe_nc_backup--classifier_timeout)
+* [`manage_ncio`](#-pe_nc_backup--manage_ncio)
 
 ##### <a name="-pe_nc_backup--path"></a>`path`
 
@@ -83,7 +106,7 @@ Default value: `true`
 
 Data type: `String`
 
-The hour for the cron job.
+The hour for the cron job. Only used when `schedule_type` is `cron`.
 
 Default value: `'*'`
 
@@ -91,7 +114,115 @@ Default value: `'*'`
 
 Data type: `String`
 
-The minute for the cron job.
+The minute for the cron job. Only used when `schedule_type` is `cron`.
 
 Default value: `'*/5'`
+
+##### <a name="-pe_nc_backup--schedule_type"></a>`schedule_type`
+
+Data type: `Enum['cron', 'systemd']`
+
+How to run the backup: `cron` (the default, as in earlier releases) or `systemd`, which
+installs a service and timer instead. The systemd timer avoids needing a cron.allow entry for the user on
+hardened hosts. Switching type removes the other one.
+
+Default value: `'cron'`
+
+##### <a name="-pe_nc_backup--on_calendar"></a>`on_calendar`
+
+Data type: `String[1]`
+
+When the systemd timer runs, as a systemd OnCalendar expression. Only used when
+`schedule_type` is `systemd`. The default matches the cron default of every five minutes.
+
+Default value: `'*:0/5'`
+
+##### <a name="-pe_nc_backup--user"></a>`user`
+
+Data type: `String[1]`
+
+The user that owns the backup directory and runs the backup. It must be able to read the
+host's certificate and private key under `ssl_dir`.
+
+Default value: `'pe-puppet'`
+
+##### <a name="-pe_nc_backup--group"></a>`group`
+
+Data type: `String[1]`
+
+The group that owns the backup directory.
+
+Default value: `'pe-puppet'`
+
+##### <a name="-pe_nc_backup--exclude_groups"></a>`exclude_groups`
+
+Data type: `Array[String[1]]`
+
+Regular expressions (Ruby syntax) matched against each node group's name. Matching
+groups are left out of the backup. Leaving out a group that others inherit from means the backup can no
+longer be restored as a whole hierarchy.
+
+Default value: `[]`
+
+##### <a name="-pe_nc_backup--strip_fields"></a>`strip_fields`
+
+Data type: `Array[String[1]]`
+
+Fields removed from every node group before it is written, for example
+`['serial_number', 'last_edited']` to stop routine console activity producing commits.
+
+Default value: `[]`
+
+##### <a name="-pe_nc_backup--split_files"></a>`split_files`
+
+Data type: `Boolean`
+
+Write one file per node group, `groups/<name>-<id>.json`, instead of a single
+`node_groups.json`, so each commit shows which groups changed. Files for deleted groups are removed. The
+single file is removed when this is turned on, and the group files when it is turned off.
+
+Default value: `false`
+
+##### <a name="-pe_nc_backup--certname"></a>`certname`
+
+Data type: `String[1]`
+
+The certname of the PE primary server, which names the certificate and key the backup
+authenticates with. Set this when the certname is not the node's own, for example when it differs from the FQDN.
+
+Default value: `$trusted['certname']`
+
+##### <a name="-pe_nc_backup--classifier_host"></a>`classifier_host`
+
+Data type: `Optional[Stdlib::Host]`
+
+The host serving the node classifier API. Defaults to the certname, which suits a
+standard install where the console services run on the primary server.
+
+Default value: `undef`
+
+##### <a name="-pe_nc_backup--classifier_port"></a>`classifier_port`
+
+Data type: `Integer[1, 65535]`
+
+The port of the node classifier API.
+
+Default value: `4433`
+
+##### <a name="-pe_nc_backup--classifier_timeout"></a>`classifier_timeout`
+
+Data type: `Integer[1]`
+
+Seconds to wait when connecting to and reading from the node classifier API.
+
+Default value: `60`
+
+##### <a name="-pe_nc_backup--manage_ncio"></a>`manage_ncio`
+
+Data type: `Boolean`
+
+Whether to install the ncio gem. The backup no longer uses it, but `ncio restore` is
+still a convenient way to restore a backup.
+
+Default value: `false`
 

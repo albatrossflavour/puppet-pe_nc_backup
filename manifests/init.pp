@@ -4,8 +4,16 @@
 #
 # @summary Creates backups of Puppet Enterprise's Node Classifier as json in a git repo.
 #
-# @example
+# @example Back up every five minutes with cron, as earlier releases did
 #   include pe_nc_backup
+#
+# @example Run from a systemd timer, with one file per group and less noise
+#   class { 'pe_nc_backup':
+#     schedule_type => 'systemd',
+#     on_calendar   => '*:0/15',
+#     split_files   => true,
+#     strip_fields  => ['serial_number', 'last_edited'],
+#   }
 #
 # @param path path to directory to store the backup git repo, backup script, and log file.
 #   The parent directory must already exist.
@@ -50,11 +58,6 @@ class pe_nc_backup (
   Boolean                                         $stdout_log         = true,
   String                                          $cron_hour          = '*',
   String                                          $cron_minute        = '*/5',
-  Optional[Stdlib::Host]                          $classifier_host    = undef,
-  Integer[1, 65535]                               $classifier_port    = 4433,
-  Integer[1]                                      $classifier_timeout = 60,
-  Boolean                                         $manage_ncio        = false,
-  String[1]                                       $certname           = $trusted['certname'],
   Enum['cron', 'systemd']                         $schedule_type      = 'cron',
   String[1]                                       $on_calendar        = '*:0/5',
   String[1]                                       $user               = 'pe-puppet',
@@ -62,6 +65,11 @@ class pe_nc_backup (
   Array[String[1]]                                $exclude_groups     = [],
   Array[String[1]]                                $strip_fields       = [],
   Boolean                                         $split_files        = false,
+  String[1]                                       $certname           = $trusted['certname'],
+  Optional[Stdlib::Host]                          $classifier_host    = undef,
+  Integer[1, 65535]                               $classifier_port    = 4433,
+  Integer[1]                                      $classifier_timeout = 60,
+  Boolean                                         $manage_ncio        = false,
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"

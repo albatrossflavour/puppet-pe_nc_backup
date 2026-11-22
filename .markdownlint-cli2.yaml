@@ -1,0 +1,11 @@
+# markdownlint-cli2 configuration. Prose is not hard wrapped.
+config:
+  MD013: false
+  MD012: false
+  MD022: false
+  MD060: false
+  MD034: false
+  MD033: false
+  MD036: false
+  MD024: false
+  MD041: false

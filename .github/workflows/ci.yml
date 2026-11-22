@@ -25,6 +25,12 @@ jobs:
           bundler-cache: true
       - name: Syntax, lint, metadata and rubocop
         run: bundle exec rake check:symlinks check:git_ignore check:dot_underscore check:test_file syntax lint metadata_lint rubocop
+      - name: Reference is up to date
+        run: bundle exec rake strings:validate:reference
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: '*.md'
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@v20
         with:
