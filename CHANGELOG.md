@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## Release 3.0.0
+
+**Breaking**
+
+- Requires Puppet 7, 8, or 9, puppetlabs-stdlib 9 or 10, and puppetlabs-vcsrepo 6, 7, or 8. Supported platforms are now RHEL, Rocky, AlmaLinux, and Oracle Linux 8 and 9, and Ubuntu 22.04 and 24.04
+- ncio is removed. The backup no longer uses the gem and the module no longer installs it. The `pe_nc_backup::restore` task replaces `ncio restore`, and `ncio transform` has no replacement. A copy that 2.x installed is left in place
+- Groups are written sorted by id with sorted keys, so the first run after upgrading may commit once to reorder the existing backup
+- The script now fails, writing nothing, if the repo directory is missing or is not the top of a git repo
+
+**Features**
+
+- The node groups are fetched directly over HTTPS with the host's certificate, trusting only the Puppet CA, with a timeout (`classifier_timeout`)
+- `classifier_host` and `classifier_port` for installs where the console services are not on the primary
+- `certname` for primaries whose certname is not their FQDN (#10)
+- `schedule_type => 'systemd'` runs the backup from a systemd timer (`on_calendar`) instead of cron, which avoids needing a `cron.allow` entry on hardened hosts and works on hosts with no cron installed
+- `user` and `group` set who owns and runs the backup
+- `manage_git` installs git before the repo is created
+- `exclude_groups`, `exclude_environments`, and `strip_fields` keep groups and fields you do not care about out of the history
+- `split_files` writes one file per group under `groups/`
+- Commit messages list the groups added, changed, and removed
+- The `pe_nc_backup::restore` task restores a backup commit through import-hierarchy, as a dry run unless confirmed, after validating the hierarchy and committing the live classifier first. It replaces the entire node group hierarchy
+- Commits as `pe_nc_backup` when the backup user has no git identity
+- CI moved to GitHub Actions
+
+**Bugfixes**
+
+- The backup directory and repo are now 0700 and the files the backup writes 0600 (`UMask=0077` under systemd, `umask 077` under cron), and an upgrade tightens existing installs
+- The script exits non-zero on any failure and logs errors to every logger, not just the log file
+- A failed or partial fetch is never written to the repo or committed
+- `$CHILD_STATUS` was used without requiring `English`
+
 ## Release 1.0.1
 
 - Fix issue with ssldir determination introduced in 1.0.0

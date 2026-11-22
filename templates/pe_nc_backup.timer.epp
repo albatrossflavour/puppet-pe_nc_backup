@@ -1,0 +1,10 @@
+<%- | String $on_calendar | -%>
+# Managed by Puppet (pe_nc_backup), local changes will be overwritten.
+[Unit]
+Description=Run pe_nc_backup on a schedule
+
+[Timer]
+OnCalendar=<%= $on_calendar %>
+
+[Install]
+WantedBy=timers.target

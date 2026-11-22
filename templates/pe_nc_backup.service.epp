@@ -1,0 +1,13 @@
+<%- | String $user, String $group, String $command | -%>
+# Managed by Puppet (pe_nc_backup), local changes will be overwritten.
+[Unit]
+Description=Back up the PE node classifier to git (pe_nc_backup)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=<%= $user %>
+Group=<%= $group %>
+UMask=0077
+ExecStart=<%= $command %>

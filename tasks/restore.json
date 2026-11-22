@@ -1,0 +1,56 @@
+{
+  "description": "Restores the PE node classifier from a commit in the pe_nc_backup repo. A real restore REPLACES THE ENTIRE NODE GROUP HIERARCHY through import-hierarchy. It runs as a dry run by default, showing which groups would be added, removed, or changed. To restore, set dry_run to false and confirm to 'replace-entire-classifier'. The live classifier is committed to the repo first, so a bad restore can be undone with this task. Run it on the PE primary server.",
+  "input_method": "stdin",
+  "supports_noop": false,
+  "files": ["pe_nc_backup/files/pe_nc_backup.rb"],
+  "parameters": {
+    "commit": {
+      "description": "The commit in the backup repo to restore, for example a commit id or HEAD~3. Defaults to HEAD.",
+      "type": "Optional[String[1]]"
+    },
+    "dry_run": {
+      "description": "Report what would change without changing anything. Defaults to true.",
+      "type": "Optional[Boolean]"
+    },
+    "confirm": {
+      "description": "Must be 'replace-entire-classifier' for a real restore.",
+      "type": "Optional[String]"
+    },
+    "max_count_drop": {
+      "description": "Refuse to restore if the backup has more than this percentage fewer groups than the live classifier. Defaults to 10.",
+      "type": "Optional[Integer[0, 100]]"
+    },
+    "force": {
+      "description": "Restore even if the group count drops by more than max_count_drop. The other checks still apply.",
+      "type": "Optional[Boolean]"
+    },
+    "read_timeout": {
+      "description": "Seconds to wait for the classifier to respond, including to the import. Defaults to 600.",
+      "type": "Optional[Integer[1]]"
+    },
+    "timeout": {
+      "description": "Seconds to wait when connecting to the classifier. Defaults to 60.",
+      "type": "Optional[Integer[1]]"
+    },
+    "path": {
+      "description": "The pe_nc_backup directory. Defaults to /opt/pe_nc_backup.",
+      "type": "Optional[String[1]]"
+    },
+    "certname": {
+      "description": "The primary's certname, which names its certificate and key. Defaults to puppet config print certname.",
+      "type": "Optional[String[1]]"
+    },
+    "ssl_dir": {
+      "description": "The primary's Puppet ssl directory. Defaults to /etc/puppetlabs/puppet/ssl.",
+      "type": "Optional[String[1]]"
+    },
+    "classifier_host": {
+      "description": "The host serving the classifier API. Defaults to the certname.",
+      "type": "Optional[String[1]]"
+    },
+    "classifier_port": {
+      "description": "The classifier API port. Defaults to 4433.",
+      "type": "Optional[Integer[1, 65535]]"
+    }
+  }
+}
