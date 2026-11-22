@@ -46,7 +46,6 @@ describe 'pe_nc_backup' do
         it { is_expected.to contain_file('pe_nc_backup script').with_content(%r{\A#!/opt/puppetlabs/puppet/bin/ruby\n}) }
         it { is_expected.to contain_file('pe_nc_backup script').with_content(%r{^module PeNcBackup$}) }
         it { is_expected.to contain_file('pe_nc_backup script').with_content(%r{^exit PeNcBackup.main\(config\)$}) }
-        it { is_expected.to contain_file('pe_nc_backup script').without_content(%r{bin/ncio|ncio --uri}) }
 
         it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with(ensure: 'present', provider: 'git', user: 'pe-puppet').that_requires('File[/opt/pe_nc_backup]') }
 
@@ -271,20 +270,12 @@ describe 'pe_nc_backup' do
         it { is_expected.to contain_package('git').that_comes_before('Vcsrepo[/opt/pe_nc_backup/repo]') }
       end
 
-      context 'with manage_ncio' do
-        let(:params) { { manage_ncio: true } }
-
-        it { is_expected.to compile.with_all_deps }
-        it { is_expected.to contain_package('ncio').with(ensure: 'installed', provider: 'puppet_gem') }
-      end
-
       context 'with invalid parameters' do
         [
           { classifier_port: 0 },
           { classifier_port: 70_000 },
           { classifier_host: 'not a host' },
           { classifier_timeout: 0 },
-          { manage_ncio: 'yes' },
           { certname: '' },
           { schedule_type: 'anacron' },
           { on_calendar: '' },

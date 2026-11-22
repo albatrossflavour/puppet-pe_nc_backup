@@ -52,8 +52,6 @@
 # @param classifier_timeout Seconds to wait when connecting to and reading from the node classifier API.
 # @param manage_git Whether to install the git package, which the backup repo needs. Leave it off if git is
 #   managed elsewhere. It uses `stdlib::ensure_packages`, so it does not clash with another plain declaration.
-# @param manage_ncio Whether to install the ncio gem. The backup no longer uses it, but `ncio restore` is
-#   still a convenient way to restore a backup.
 #
 class pe_nc_backup (
   String                                          $path                 = '/opt/pe_nc_backup',
@@ -76,7 +74,6 @@ class pe_nc_backup (
   Integer[1, 65535]                               $classifier_port      = 4433,
   Integer[1]                                      $classifier_timeout   = 60,
   Boolean                                         $manage_git           = false,
-  Boolean                                         $manage_ncio          = false,
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
@@ -153,13 +150,6 @@ class pe_nc_backup (
     provider => shell,
     path     => ['/usr/bin', '/bin'],
     require  => File[$git_repo_dir],
-  }
-
-  if $manage_ncio {
-    package { 'ncio':
-      ensure   => installed,
-      provider => puppet_gem,
-    }
   }
 
   # Plain file resources and a daemon-reload exec keep the module free of a

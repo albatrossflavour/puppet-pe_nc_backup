@@ -13,6 +13,7 @@
     * [Reducing noise](#reducing-noise)
     * [One file per group](#one-file-per-group)
     * [Restoring](#restoring)
+    * [Migrating from ncio](#migrating-from-ncio)
 4. [Reference](#reference)
 5. [Limitations](#limitations)
 6. [Development](#development)
@@ -21,7 +22,7 @@
 
 This module records changes to your Puppet Enterprise node classification over time. On a schedule, it fetches every node group from the node classifier API and commits any change to a local git repo, so you can see what changed and when, and restore an earlier state.
 
-The groups are written as prettified JSON in the same shape `ncio backup` produced, so `ncio restore` works on backups taken by this and earlier releases.
+The groups are written as prettified JSON, either as one array in `node_groups.json` or as one file per group, and the `pe_nc_backup::restore` task restores them.
 
 ## Setup
 
@@ -140,7 +141,17 @@ PE's import-hierarchy documentation says every field of every group must be give
 
 A backup taken with `exclude_groups` or `exclude_environments` leaves groups out, so restoring it deletes those groups. Children of an excluded group fail the hierarchy check.
 
-`ncio restore` still works on these backups if you'd rather use it. Set `manage_ncio => true` to have the module install the gem.
+### Migrating from ncio
+
+Releases before 3.0.0 installed the ncio gem and used it to take the backup. 3.0.0 no longer installs or uses ncio. The backup talks to the classifier API itself, and the `pe_nc_backup::restore` task replaces `ncio restore` (see [Restoring](#restoring)). Backups taken by earlier releases restore with the task too. There's no replacement for `ncio transform`.
+
+ncio was replaced because it hasn't been released since 2018, its restore sends a file without validating it, and its backups were world-readable.
+
+The module doesn't remove a copy of ncio that 2.x installed, because it can't tell that copy apart from one your site manages. If nothing else needs it, remove it on the primary with:
+
+```shell
+puppet resource package ncio ensure=absent provider=puppet_gem
+```
 
 ## Reference
 

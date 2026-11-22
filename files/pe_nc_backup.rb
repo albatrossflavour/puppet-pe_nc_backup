@@ -47,7 +47,7 @@ module PeNcBackup
     end
   end
 
-  # Fetches the node groups from the classifier API, the same request ncio backup made.
+  # Talks to the node classifier API: fetching every group, and importing a hierarchy for a restore.
   class Classifier
     attr_reader :uri
 

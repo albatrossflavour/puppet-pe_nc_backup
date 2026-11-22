@@ -63,7 +63,6 @@ The following parameters are available in the `pe_nc_backup` class:
 * [`classifier_port`](#-pe_nc_backup--classifier_port)
 * [`classifier_timeout`](#-pe_nc_backup--classifier_timeout)
 * [`manage_git`](#-pe_nc_backup--manage_git)
-* [`manage_ncio`](#-pe_nc_backup--manage_ncio)
 
 ##### <a name="-pe_nc_backup--path"></a>`path`
 
@@ -239,15 +238,6 @@ Data type: `Boolean`
 
 Whether to install the git package, which the backup repo needs. Leave it off if git is
 managed elsewhere. It uses `stdlib::ensure_packages`, so it does not clash with another plain declaration.
-
-Default value: `false`
-
-##### <a name="-pe_nc_backup--manage_ncio"></a>`manage_ncio`
-
-Data type: `Boolean`
-
-Whether to install the ncio gem. The backup no longer uses it, but `ncio restore` is
-still a convenient way to restore a backup.
 
 Default value: `false`
 

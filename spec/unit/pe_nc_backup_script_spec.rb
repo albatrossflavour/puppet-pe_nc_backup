@@ -6,7 +6,7 @@ describe 'pe_nc_backup script' do
   include_context 'with a backup directory and fake classifier'
 
   describe 'a successful backup' do
-    it 'writes the groups in the format ncio backup wrote and commits them' do
+    it 'writes the groups as a pretty printed JSON array and commits them' do
       expect(run_backup).to eq(0)
       content = File.read(File.join(repo, 'node_groups.json'))
       expect(content).to eq("#{JSON.pretty_generate(PeNcBackup::Filter.new.apply(classifier.groups))}\n")
@@ -15,7 +15,7 @@ describe 'pe_nc_backup script' do
       expect(git(repo, 'status', '--porcelain')).to eq('')
     end
 
-    it 'makes the same request ncio made, authenticated with the host certificate' do
+    it 'asks for the groups without inherited data, authenticated with the host certificate' do
       run_backup
       expect(classifier.requests).to eq([{ path: '/classifier-api/v1/groups', query: 'inherited=false', client_cn: certname }])
     end
