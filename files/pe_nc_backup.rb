@@ -21,6 +21,9 @@ module PeNcBackup
   class Error < StandardError; end
 
   BACKUP_FILE = 'node_groups.json'
+  GROUPS_DIR = 'groups'
+  # Names listed per heading in a commit message before the rest are counted.
+  MAX_NAMES = 50
 
   # Sends every message to all of the configured loggers.
   class Log
@@ -120,8 +123,12 @@ module PeNcBackup
       kept = groups.reject { |group| @exclude.any? { |re| re.match?(group['name'].to_s) } }
       raise Error, "exclude_groups matched all #{groups.size} node groups, refusing to write an empty backup" if kept.empty?
 
-      kept.map { |group| sort_keys(group.reject { |key, _| @strip.include?(key) }) }
-          .sort_by { |group| [group['id'].to_s, group['name'].to_s] }
+      kept.map { |group| normalise(group) }.sort_by { |group| [group['id'].to_s, group['name'].to_s] }
+    end
+
+    # Strips and sorts one group, without excluding anything.
+    def normalise(group)
+      sort_keys(group.reject { |key, _| @strip.include?(key) })
     end
 
     private
@@ -156,6 +163,10 @@ module PeNcBackup
     #
     # @return [Boolean] true if a commit was made, false if there was nothing to commit
     def commit(paths, message, identity_email)
+      # git rejects a pathspec it knows nothing about, such as groups/ before split_files is first used.
+      paths = paths.select { |path| File.exist?(File.join(@dir, path)) || !git('ls-files', '--', path).first.empty? }
+      return false if paths.empty?
+
       out, status = git('add', '--all', '--', *paths)
       raise Error, "Unable to git add #{paths.join(' ')}: #{out.strip}" unless status.success?
 
@@ -201,8 +212,9 @@ module PeNcBackup
       fetched = classifier(certname).groups
       groups = filter.apply(fetched)
       @log.info("Retrieved #{fetched.size} node groups, keeping #{groups.size}")
-      write_file(BACKUP_FILE, "#{JSON.pretty_generate(groups)}\n")
-      commit(certname)
+      previous = read_previous(filter)
+      write_backup(groups)
+      commit(certname, changes(previous, groups))
       @log.info("Backup script complete at #{Time.now}")
       0
     rescue Error => e
@@ -262,9 +274,66 @@ module PeNcBackup
       FileUtils.rm_f(tmp) if tmp
     end
 
-    def commit(certname)
+    # Writes node_groups.json, or one file per group under groups/ with
+    # split_files, and removes whichever of the two layouts is not in use.
+    def write_backup(groups)
+      if @config['split_files']
+        wanted = groups.to_h { |group| [split_name(group), group] }
+        wanted.each { |name, group| write_file(File.join(GROUPS_DIR, name), "#{JSON.pretty_generate(group)}\n") }
+        (split_files - wanted.keys.map { |name| File.join(@repo.dir, GROUPS_DIR, name) }).each { |file| File.delete(file) }
+        FileUtils.rm_f(File.join(@repo.dir, BACKUP_FILE))
+      else
+        write_file(BACKUP_FILE, "#{JSON.pretty_generate(groups)}\n")
+        split_files.each { |file| File.delete(file) }
+      end
+    end
+
+    def split_files
+      Dir.glob(File.join(@repo.dir, GROUPS_DIR, '*.json'))
+    end
+
+    # groups/<name>-<id>.json, with anything but letters, digits, dot, dash
+    # and underscore in the name replaced. The id keeps names unique.
+    def split_name(group)
+      name = group['name'].to_s.gsub(%r{[^A-Za-z0-9._-]+}, '_').sub(%r{\A[._]+}, '')[0, 100]
+      id = group['id'].to_s.gsub(%r{[^A-Za-z0-9._-]+}, '_')
+      "#{name.empty? ? 'group' : name}-#{id}.json"
+    end
+
+    # The groups in the repo before this run, by id, normalised the same way
+    # as the new ones. Unreadable files are skipped, as if the group were new.
+    def read_previous(filter)
+      files = [File.join(@repo.dir, BACKUP_FILE)] + split_files
+      files.each_with_object({}) do |file, previous|
+        next unless File.file?(file)
+
+        data = JSON.parse(File.read(file))
+        Array(data.is_a?(Hash) ? [data] : data).each do |group|
+          previous[group['id']] = filter.normalise(group) if group.is_a?(Hash)
+        end
+      rescue JSON::ParserError
+        next
+      end
+    end
+
+    def changes(previous, groups)
+      current = groups.to_h { |group| [group['id'], group] }
+      {
+        'Added' => (current.keys - previous.keys).map { |id| current[id]['name'] },
+        'Changed' => (current.keys & previous.keys).reject { |id| current[id] == previous[id] }.map { |id| current[id]['name'] },
+        'Removed' => (previous.keys - current.keys).map { |id| previous[id]['name'] },
+      }
+    end
+
+    def commit(certname, changes)
       message = "Update node groups by pe_nc_backup on #{certname} at #{Time.now.iso8601}\n"
-      if @repo.commit([BACKUP_FILE], message, "pe_nc_backup@#{certname}")
+      body = changes.reject { |_, names| names.empty? }.map do |heading, names|
+        names = names.map(&:to_s).sort
+        more = (names.size > MAX_NAMES) ? " and #{names.size - MAX_NAMES} more" : ''
+        "#{heading}: #{names.first(MAX_NAMES).join(', ')}#{more}\n"
+      end
+      message += "\n#{body.join}" unless body.empty?
+      if @repo.commit([BACKUP_FILE, GROUPS_DIR], message, "pe_nc_backup@#{certname}")
         @log.info('Committed changes to the node groups')
       else
         @log.info('No changes to the node groups, nothing to commit')

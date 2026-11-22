@@ -178,6 +178,138 @@ describe 'pe_nc_backup script' do
     end
   end
 
+  describe 'commit messages' do
+    it 'lists every group as added on the first run' do
+      run_backup
+      expect(last_commit_message(repo)).to match(%r{\AUpdate node groups by pe_nc_backup on \S+ at \S+\n\nAdded: All Nodes, Development, Production\n\z})
+    end
+
+    it 'lists added, changed and removed groups by name' do
+      run_backup
+      classifier.groups = [
+        groups[0],
+        groups[1].merge('environment' => 'staging'),
+        FakeClassifier.group('Web servers', 'd0000000-0000-4000-8000-000000000003'),
+      ]
+      run_backup
+      expect(last_commit_message(repo).lines.drop(2).join).to eq("Added: Web servers\nChanged: Production\nRemoved: Development\n")
+    end
+
+    it 'counts the names beyond the first fifty' do
+      classifier.groups = (1..60).map { |i| FakeClassifier.group('Group %02d' % i, 'id-%02d' % i) }
+      run_backup
+      added = last_commit_message(repo).lines.last
+      expect(added).to start_with('Added: Group 01, Group 02,')
+      expect(added).to end_with("Group 50 and 10 more\n")
+    end
+
+    it 'does not count a group as changed when only a stripped field differs from the old backup' do
+      run_backup
+      classifier.groups = groups.map { |g| (g['name'] == 'Production') ? g.merge('serial_number' => 9, 'description' => 'new') : g.merge('serial_number' => 9) }
+      run_backup(config.merge('strip_fields' => ['serial_number']))
+      expect(last_commit_message(repo).lines.drop(2).join).to eq("Changed: Production\n")
+    end
+  end
+
+  describe 'split_files' do
+    let(:extra_config) { { 'split_files' => true } }
+    let(:group_files) { Dir.children(File.join(repo, 'groups')).sort }
+
+    it 'writes one file per group, named after the group and its id' do
+      expect(run_backup).to eq(0)
+      expect(group_files).to eq([
+                                  'All_Nodes-00000000-0000-4000-8000-000000000000.json',
+                                  'Development-a0000000-0000-4000-8000-000000000001.json',
+                                  'Production-b0000000-0000-4000-8000-000000000002.json',
+                                ])
+      expect(File.exist?(File.join(repo, 'node_groups.json'))).to be(false)
+      expect(git(repo, 'ls-files').lines.size).to eq(3)
+    end
+
+    it 'writes each group as a sorted, pretty printed JSON object' do
+      run_backup
+      content = File.read(File.join(repo, 'groups', 'Production-b0000000-0000-4000-8000-000000000002.json'))
+      expect(content).to eq("#{JSON.pretty_generate(PeNcBackup::Filter.new.normalise(groups[1]))}\n")
+    end
+
+    it 'commits nothing when nothing changed' do
+      run_backup
+      run_backup
+      expect(commit_count(repo)).to eq(1)
+    end
+
+    it 'updates only the file of the group that changed' do
+      run_backup
+      classifier.groups = groups.map { |g| (g['name'] == 'Production') ? g.merge('environment' => 'staging') : g }
+      run_backup
+      expect(commit_count(repo)).to eq(2)
+      expect(git(repo, 'show', '--name-status', '--format=', 'HEAD')).to eq("M\tgroups/Production-b0000000-0000-4000-8000-000000000002.json\n")
+      expect(last_commit_message(repo)).to end_with("\n\nChanged: Production\n")
+    end
+
+    it 'deletes the file of a group that no longer exists' do
+      run_backup
+      classifier.groups = groups.reject { |g| g['name'] == 'Development' }
+      run_backup
+      expect(group_files).not_to include(a_string_starting_with('Development'))
+      expect(git(repo, 'show', '--name-status', '--format=', 'HEAD')).to eq("D\tgroups/Development-a0000000-0000-4000-8000-000000000001.json\n")
+      expect(last_commit_message(repo)).to end_with("\n\nRemoved: Development\n")
+    end
+
+    it 'renames the file when a group is renamed' do
+      run_backup
+      classifier.groups = groups.map { |g| (g['name'] == 'Development') ? g.merge('name' => 'Dev & Test') : g }
+      run_backup
+      expect(group_files).to include('Dev_Test-a0000000-0000-4000-8000-000000000001.json')
+      expect(group_files).not_to include('Development-a0000000-0000-4000-8000-000000000001.json')
+      expect(last_commit_message(repo)).to end_with("\n\nChanged: Dev & Test\n")
+    end
+
+    it 'adds a file for a new group' do
+      run_backup
+      classifier.groups = groups + [FakeClassifier.group('Web', 'c0000000-0000-4000-8000-000000000003')]
+      run_backup
+      expect(git(repo, 'show', '--name-status', '--format=', 'HEAD')).to eq("A\tgroups/Web-c0000000-0000-4000-8000-000000000003.json\n")
+      expect(last_commit_message(repo)).to end_with("\n\nAdded: Web\n")
+    end
+
+    it 'makes names safe for the file system' do
+      classifier.groups = [FakeClassifier.group('../../etc/passwd', 'x/y'), FakeClassifier.group('Ünïcode / spaces  ', 'u1'), FakeClassifier.group('...', 'dots')]
+      run_backup
+      expect(group_files).to eq(['etc_passwd-x_y.json', 'group-dots.json', 'n_code_spaces_-u1.json'])
+    end
+
+    it 'leaves files other than group JSON alone' do
+      FileUtils.mkdir_p(File.join(repo, 'groups'))
+      File.write(File.join(repo, 'groups', 'README'), "notes\n")
+      run_backup
+      expect(group_files).to include('README')
+    end
+
+    it 'removes the single file when switching to split files, in one commit' do
+      run_backup(config.merge('split_files' => false))
+      run_backup
+      expect(commit_count(repo)).to eq(2)
+      expect(git(repo, 'show', '--name-status', '--format=', 'HEAD').lines.map { |l| l[0] }.tally).to eq('A' => 3, 'D' => 1)
+      expect(last_commit_message(repo).lines.size).to eq(1)
+    end
+
+    it 'removes the group files when switching back to a single file' do
+      run_backup
+      run_backup(config.merge('split_files' => false))
+      expect(Dir.exist?(File.join(repo, 'groups')) ? group_files : []).to be_empty
+      expect(git(repo, 'ls-files')).to eq("node_groups.json\n")
+    end
+
+    it 'writes and commits nothing when the fetch fails' do
+      run_backup
+      classifier.status = 500
+      expect(run_backup).to eq(1)
+      expect(commit_count(repo)).to eq(1)
+      expect(git(repo, 'status', '--porcelain')).to eq('')
+    end
+  end
+
   describe 'a failed fetch' do
     before(:each) do
       File.write(File.join(repo, 'node_groups.json'), "[\n  {\"previous\": true}\n]\n")

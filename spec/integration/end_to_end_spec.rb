@@ -108,7 +108,40 @@ describe 'pe_nc_backup', type: :class do
     expect(commits).to eq(2)
     expect(git('diff', '--stat', 'HEAD~1', 'HEAD')).to match(%r{node_groups.json \| \d+ \+})
     expect(git('status', '--porcelain')).to eq('')
-    puts git('log', '--format=    %h %s') if ENV['E2E_VERBOSE']
+    puts git('log', '--format=    %h %s%n%w(0,6,6)%b') if ENV['E2E_VERBOSE']
+  end
+
+  context 'with split_files, strip_fields and exclude_groups' do
+    let(:params) { base_params.merge(split_files: true, strip_fields: ['serial_number', 'last_edited'], exclude_groups: ['^PE ']) }
+
+    def head_files
+      git('show', '--name-status', '--format=', 'HEAD')
+    end
+
+    it 'writes a file per kept group and commits only real changes' do
+      expect(backup('first run')).to match([0, %r{Retrieved 3 node groups, keeping 2}])
+      expect(Dir.children(File.join(repo, 'groups')).sort).to eq(['All_Nodes-00000000-0000-4000-8000-000000000000.json', 'Production_environment-c0ffee00-0000-4000-8000-000000000002.json'])
+
+      classifier.groups = groups.map { |g| g.merge('serial_number' => 2, 'last_edited' => '2026-11-23T01:00:00.000Z') }
+      expect(backup('second run, only stripped fields changed')).to match([0, %r{nothing to commit}])
+      expect(commits).to eq(1)
+
+      classifier.groups = groups.map { |g| g['name'].start_with?('PE ') ? g.merge('description' => 'changed') : g }
+      expect(backup('third run, only an excluded group changed')).to match([0, %r{nothing to commit}])
+      expect(commits).to eq(1)
+
+      classifier.groups = groups.map { |g| (g['name'] == 'Production environment') ? g.merge('environment' => 'staging') : g }
+      expect(backup('fourth run, one group changed')).to match([0, %r{Committed}])
+      expect(commits).to eq(2)
+      expect(head_files).to eq("M\tgroups/Production_environment-c0ffee00-0000-4000-8000-000000000002.json\n")
+      expect(git('log', '-1', '--format=%b')).to eq("Changed: Production environment\n\n")
+
+      classifier.groups = groups.reject { |g| g['name'] == 'Production environment' }
+      expect(backup('fifth run, a group deleted')).to match([0, %r{Committed}])
+      expect(commits).to eq(3)
+      expect(head_files).to eq("D\tgroups/Production_environment-c0ffee00-0000-4000-8000-000000000002.json\n")
+      puts git('log', '--format=    %h %s%n%w(0,6,6)%b') if ENV['E2E_VERBOSE']
+    end
   end
 
   it 'exits non-zero and commits nothing when the classifier fails' do

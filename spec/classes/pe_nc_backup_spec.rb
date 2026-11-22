@@ -78,6 +78,7 @@ describe 'pe_nc_backup' do
             'stdout_log' => true,
             'exclude_groups' => [],
             'strip_fields' => [],
+            'split_files' => false,
           )
         end
 
@@ -222,6 +223,13 @@ describe 'pe_nc_backup' do
         end
       end
 
+      context 'with split_files' do
+        let(:params) { { split_files: true } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { expect(script_config(catalogue)).to include('split_files' => true) }
+      end
+
       context 'with manage_ncio' do
         let(:params) { { manage_ncio: true } }
 
@@ -242,6 +250,7 @@ describe 'pe_nc_backup' do
           { user: '' },
           { exclude_groups: 'PE' },
           { strip_fields: [''] },
+          { split_files: 'true' },
           { log_level: 'verbose' },
         ].each do |bad|
           context "with #{bad}" do

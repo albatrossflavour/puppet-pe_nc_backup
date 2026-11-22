@@ -28,7 +28,8 @@ module ScriptHelper
   end
 
   def last_commit_message(repo)
-    git(repo, 'log', '-1', '--format=%B')
+    # %B ends with an extra blank line
+    git(repo, 'log', '-1', '--format=%B').sub(%r{\n+\z}, "\n")
   end
 
   # Isolates git from the user's own configuration (signing, hooks, identity).

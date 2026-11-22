@@ -30,6 +30,9 @@
 #   longer be restored as a whole hierarchy.
 # @param strip_fields Fields removed from every node group before it is written, for example
 #   `['serial_number', 'last_edited']` to stop routine console activity producing commits.
+# @param split_files Write one file per node group, `groups/<name>-<id>.json`, instead of a single
+#   `node_groups.json`, so each commit shows which groups changed. Files for deleted groups are removed. The
+#   single file is removed when this is turned on, and the group files when it is turned off.
 # @param certname The certname of the PE primary server, which names the certificate and key the backup
 #   authenticates with. Set this when the certname is not the node's own, for example when it differs from the FQDN.
 # @param classifier_host The host serving the node classifier API. Defaults to the certname, which suits a
@@ -58,6 +61,7 @@ class pe_nc_backup (
   String[1]                                       $group              = 'pe-puppet',
   Array[String[1]]                                $exclude_groups     = [],
   Array[String[1]]                                $strip_fields       = [],
+  Boolean                                         $split_files        = false,
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
@@ -91,6 +95,7 @@ class pe_nc_backup (
           stdout_log       => $stdout_log,
           exclude_groups   => $exclude_groups,
           strip_fields     => $strip_fields,
+          split_files      => $split_files,
         },
       })
     ;
