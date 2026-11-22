@@ -47,7 +47,7 @@ describe 'pe_nc_backup' do
         it { is_expected.to contain_file('pe_nc_backup script').with_content(%r{^module PeNcBackup$}) }
         it { is_expected.to contain_file('pe_nc_backup script').with_content(%r{^exit PeNcBackup.main\(config\)$}) }
 
-        it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with(ensure: 'present', provider: 'git', user: 'pe-puppet').that_requires('File[/opt/pe_nc_backup]') }
+        it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with(ensure: 'present', provider: 'git', user: 'pe-puppet', umask: '0077').that_requires('File[/opt/pe_nc_backup]') }
 
         it { is_expected.not_to contain_package('ncio') }
         it { is_expected.not_to contain_package('git') }

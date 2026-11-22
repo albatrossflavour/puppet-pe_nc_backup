@@ -126,10 +126,13 @@ class pe_nc_backup (
     Package['git'] -> Vcsrepo[$git_repo_dir]
   }
 
+  # vcsrepo runs git status as $user on every Puppet run, which rewrites
+  # .git/index under Puppet's umask unless this is set.
   vcsrepo { $git_repo_dir:
     ensure   => present,
     provider => git,
     user     => $user,
+    umask    => '0077',
     require  => File[$path],
   }
 
