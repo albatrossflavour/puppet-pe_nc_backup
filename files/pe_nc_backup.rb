@@ -632,9 +632,12 @@ module PeNcBackup
       owner = File.stat(path)
       return if owner.uid.zero?
 
+      user = Etc.getpwuid(owner.uid)
+      # Replaces root's supplementary groups, which change_privilege keeps.
+      Process.initgroups(user.name, owner.gid)
       Process::GID.change_privilege(owner.gid)
       Process::UID.change_privilege(owner.uid)
-      ENV['HOME'] = Etc.getpwuid(owner.uid).dir
+      ENV['HOME'] = user.dir
     rescue Errno::ENOENT
       raise Error, "Directory does not exist at #{path}"
     end

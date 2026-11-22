@@ -341,5 +341,32 @@ describe 'pe_nc_backup restore' do
     ensure
       File.umask(old)
     end
+
+    describe 'dropping privileges' do
+      let(:owner) { instance_double(File::Stat, uid: 998, gid: 997) }
+
+      before(:each) do
+        allow(Process).to receive(:uid).and_return(0)
+        allow(File).to receive(:stat).with('/opt/pe_nc_backup').and_return(owner)
+        allow(Etc).to receive(:getpwuid).with(998).and_return(Etc::Passwd.new('pe-puppet', 'x', 998, 997, '', '/home/pe-puppet'))
+        allow(Process::GID).to receive(:change_privilege)
+        stub_const('ENV', ENV.to_h)
+      end
+
+      it "takes the owner's groups in place of root's before changing user" do
+        expect(Process).to receive(:initgroups).with('pe-puppet', 997).ordered
+        expect(Process::GID).to receive(:change_privilege).with(997).ordered
+        expect(Process::UID).to receive(:change_privilege).with(998).ordered
+        PeNcBackup::RestoreTask.drop_privileges('/opt/pe_nc_backup')
+        expect(ENV['HOME']).to eq('/home/pe-puppet')
+      end
+
+      it 'stays root when root owns the directory' do
+        allow(owner).to receive(:uid).and_return(0)
+        expect(Process).not_to receive(:initgroups)
+        expect(Process::UID).not_to receive(:change_privilege)
+        PeNcBackup::RestoreTask.drop_privileges('/opt/pe_nc_backup')
+      end
+    end
   end
 end
