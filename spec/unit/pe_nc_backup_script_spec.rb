@@ -337,6 +337,16 @@ describe 'pe_nc_backup script' do
       expect(last_commit_message(repo).lines.size).to eq(1)
     end
 
+    # 2.x staged node_groups.json before committing, so a primary where its
+    # commits failed (no git identity) upgrades with the file staged but never committed.
+    it 'switches from a single file that was staged but never committed' do
+      File.write(File.join(repo, 'node_groups.json'), "[]\n")
+      git(repo, 'add', 'node_groups.json')
+      expect(run_backup).to eq(0)
+      expect(git(repo, 'ls-files').lines.size).to eq(3)
+      expect(git(repo, 'status', '--porcelain')).to eq('')
+    end
+
     it 'removes the group files when switching back to a single file' do
       run_backup
       run_backup(config.merge('split_files' => false))

@@ -212,10 +212,15 @@ module PeNcBackup
       out, status = git('add', '--all', '--', *paths)
       raise Error, "Unable to git add #{paths.join(' ')}: #{out.strip}" unless status.success?
 
-      _, status = git('diff', '--cached', '--quiet', '--', *paths)
-      return false if status.success?
+      # Commits only the staged changes, since a path that was staged but never
+      # committed and is now deleted is unknown to git and fails the commit.
+      out, status = git('diff', '--cached', '--name-only', '-z', '--', *paths)
+      raise Error, "Unable to list the staged changes: #{out.strip}" unless status.success?
 
-      out, status = git(*identity(identity_email), 'commit', '--quiet', '--file=-', '--', *paths, stdin: message)
+      changed = out.split("\0")
+      return false if changed.empty?
+
+      out, status = git(*identity(identity_email), 'commit', '--quiet', '--file=-', '--', *changed, stdin: message)
       raise Error, "Unable to make git commit: #{out.strip}" unless status.success?
 
       true
