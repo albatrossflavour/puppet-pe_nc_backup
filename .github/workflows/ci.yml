@@ -1,0 +1,74 @@
+---
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    env:
+      PUPPET_GEM_VERSION: '~> 8.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+      - name: Syntax, lint, metadata and rubocop
+        run: bundle exec rake check:symlinks check:git_ignore check:dot_underscore check:test_file syntax lint metadata_lint rubocop
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: |
+            *.md
+
+  spec:
+    name: Puppet ${{ matrix.puppet }} (Ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - puppet: '7'
+            ruby: '3.2'
+            puppetcore: false
+          - puppet: '8'
+            ruby: '3.2'
+            puppetcore: false
+          # Puppet 9 is only published to the authenticated puppetcore gem
+          # source, so this job runs only when a PUPPET_FORGE_TOKEN secret is
+          # available (it is not passed to pull requests from forks).
+          - puppet: '9'
+            ruby: '3.4'
+            puppetcore: true
+    env:
+      PUPPET_GEM_VERSION: '~> ${{ matrix.puppet }}.0'
+      PUPPET_FORGE_TOKEN: ${{ matrix.puppetcore && secrets.PUPPET_FORGE_TOKEN || '' }}
+      BUNDLE_RUBYGEMS___PUPPETCORE__PUPPET__COM: ${{ matrix.puppetcore && format('forge-key:{0}', secrets.PUPPET_FORGE_TOKEN) || '' }}
+    steps:
+      - name: Check the gem source is available
+        id: gate
+        run: |
+          if [ "${{ matrix.puppetcore }}" = "true" ] && [ -z "$PUPPET_FORGE_TOKEN" ]; then
+            echo "::notice::PUPPET_FORGE_TOKEN is not set, skipping Puppet ${{ matrix.puppet }}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
+      - uses: ruby/setup-ruby@v1
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Unit, script and end-to-end tests
+        if: steps.gate.outputs.skip != 'true'
+        run: bundle exec rake spec

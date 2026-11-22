@@ -2,10 +2,10 @@ fixtures:
   forge_modules:
     stdlib:
       repo: "puppetlabs/stdlib"
-      ref: "4.13.1"
+      ref: "10.1.1"
     vcsrepo:
       repo: "puppetlabs/vcsrepo"
-      ref: "2.0.0"
+      ref: "8.0.0"
     cron_core:
       repo: "puppetlabs/cron_core"
-      ref: "1.0.2"
+      ref: "2.1.0"
