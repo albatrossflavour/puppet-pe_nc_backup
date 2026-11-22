@@ -239,6 +239,19 @@ module PeNcBackup
     def check_repo
       raise Error, "Backup repo directory does not exist at #{@repo.dir}" unless File.directory?(@repo.dir)
       raise Error, "This does not appear to be a git repo here at #{@repo.dir}" unless @repo.git?
+
+      private_repo
+    end
+
+    # core.sharedRepository makes git write group or world readable objects
+    # whatever the umask, so the backup turns it off.
+    def private_repo
+      out, status = @repo.git('config', '--local', 'core.sharedRepository')
+      return unless status.success? && !['false', 'umask', '0'].include?(out.strip.downcase)
+
+      @log.warn("Unsetting core.sharedRepository=#{out.strip} so the backup stays private")
+      out, status = @repo.git('config', '--local', '--unset-all', 'core.sharedRepository')
+      raise Error, "Unable to unset core.sharedRepository: #{out.strip}" unless status.success?
     end
 
     def resolve_certname
@@ -275,14 +288,21 @@ module PeNcBackup
 
     # Writes to a temporary file outside the repo and moves it into place, so
     # the repo never holds a partly written file.
+    # The temporary file is created 0600 with O_EXCL, so it never follows or
+    # replaces something already at that path, such as a planted symlink.
     def write_file(relative, content)
       target = File.join(@repo.dir, relative)
       FileUtils.mkdir_p(File.dirname(target))
       tmp = File.join(@path, ".#{File.basename(relative)}.#{Process.pid}.tmp")
-      File.write(tmp, content)
+      begin
+        File.open(tmp, File::WRONLY | File::CREAT | File::EXCL, 0o600) { |f| f.write(content) }
+      rescue Errno::EEXIST
+        raise Error, "Temporary file #{tmp} already exists, refusing to write through it"
+      end
+      created = tmp
       FileUtils.mv(tmp, target)
     ensure
-      FileUtils.rm_f(tmp) if tmp
+      FileUtils.rm_f(created) if created
     end
 
     # Writes node_groups.json, or one file per group under groups/ with
@@ -366,7 +386,10 @@ module PeNcBackup
   end
 
   # Runs a backup and returns the exit code.
+  # Node groups often hold secrets in class parameters, so everything the
+  # backup creates (log, backup files, git objects) is private to its user.
   def self.main(config, loggers = nil)
+    old_umask = File.umask(0o077)
     raise Error, "Directory does not exist at #{config['path']}" unless File.directory?(config['path'].to_s)
 
     log = Log.new(loggers || self.loggers(config))
@@ -379,5 +402,7 @@ module PeNcBackup
   rescue Error => e
     warn e.message
     1
+  ensure
+    File.umask(old_umask) if old_umask
   end
 end

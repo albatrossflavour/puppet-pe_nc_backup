@@ -353,6 +353,71 @@ describe 'pe_nc_backup script' do
     end
   end
 
+  describe 'file permissions' do
+    def mode(file)
+      File.lstat(file).mode & 0o777
+    end
+
+    it 'writes the backup, log and git objects private to the user, whatever the umask it was started with' do
+      old = File.umask(0o022)
+      begin
+        PeNcBackup.main(config.merge('stdout_log' => false))
+      ensure
+        File.umask(old)
+      end
+      expect(mode(File.join(repo, 'node_groups.json'))).to eq(0o600)
+      expect(mode(File.join(path, 'pe_nc_backup.log'))).to eq(0o600)
+      objects = Dir.glob(File.join(repo, '.git', 'objects', '??', '*'))
+      expect(objects).not_to be_empty
+      expect(objects.map { |f| mode(f) & 0o077 }.uniq).to eq([0])
+      expect(Dir.glob(File.join(repo, '.git', 'objects', '??')).map { |d| mode(d) }.uniq).to eq([0o700])
+    end
+
+    it 'puts the umask back afterwards, for callers in the same process' do
+      old = File.umask(0o022)
+      begin
+        run_backup
+        expect(File.umask).to eq(0o022)
+      ensure
+        File.umask(old)
+      end
+    end
+
+    it 'writes split files and the groups directory privately' do
+      run_backup(config.merge('split_files' => true))
+      expect(mode(File.join(repo, 'groups'))).to eq(0o700)
+      expect(Dir.glob(File.join(repo, 'groups', '*')).map { |f| mode(f) }.uniq).to eq([0o600])
+    end
+
+    it 'does not follow a symlink planted at the temporary file path' do
+      victim = File.join(tmp, 'victim')
+      File.write(victim, "precious\n")
+      link = File.join(path, ".node_groups.json.#{Process.pid}.tmp")
+      File.symlink(victim, link)
+      expect(run_backup).to eq(1)
+      expect(File.read(victim)).to eq("precious\n")
+      expect(File.symlink?(link)).to be(true)
+      expect(File.exist?(File.join(repo, 'node_groups.json'))).to be(false)
+      expect(commit_count(repo)).to eq(0)
+      expect(stdout_io.string).to include('already exists, refusing to write through it')
+    end
+
+    it 'turns off core.sharedRepository so git keeps its objects private' do
+      git(repo, 'config', 'core.sharedRepository', 'world')
+      expect(run_backup).to eq(0)
+      expect(Open3.capture2e('git', 'config', '--local', 'core.sharedRepository', chdir: repo)[1].success?).to be(false)
+      expect(log_io.string).to include('Unsetting core.sharedRepository=world')
+      objects = Dir.glob(File.join(repo, '.git', 'objects', '??', '*'))
+      expect(objects.map { |f| mode(f) & 0o077 }.uniq).to eq([0])
+    end
+
+    it 'leaves core.sharedRepository alone when it is already private' do
+      git(repo, 'config', 'core.sharedRepository', 'false')
+      run_backup
+      expect(git(repo, 'config', '--local', 'core.sharedRepository').strip).to eq('false')
+    end
+  end
+
   describe 'a failed fetch' do
     before(:each) do
       File.write(File.join(repo, 'node_groups.json'), "[\n  {\"previous\": true}\n]\n")

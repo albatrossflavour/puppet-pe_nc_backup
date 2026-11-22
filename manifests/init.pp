@@ -90,8 +90,15 @@ class pe_nc_backup (
       group => $group,
       mode  => '0644',
     ;
-    [$path, $bin_dir]:
+    # The backup can hold secrets from class parameters, so only $user can
+    # read it. The bin directory only holds the script.
+    $path:
       ensure => directory,
+      mode   => '0700',
+    ;
+    $bin_dir:
+      ensure => directory,
+      mode   => '0755',
     ;
     'pe_nc_backup script':
       ensure  => file,
@@ -127,6 +134,25 @@ class pe_nc_backup (
     provider => git,
     user     => $user,
     require  => File[$path],
+  }
+
+  file { $git_repo_dir:
+    ensure  => directory,
+    owner   => $user,
+    group   => $group,
+    mode    => '0700',
+    require => Vcsrepo[$git_repo_dir],
+  }
+
+  # Earlier releases left the repo and log world-readable. This tightens them
+  # once, and only runs again if something under the repo is group or world
+  # accessible. A recursive file resource would stat every git object on every run.
+  exec { 'pe_nc_backup make the backup private':
+    command  => "chmod -R u+rwX,go-rwx '${git_repo_dir}' && find '${path}' -maxdepth 1 -name 'pe_nc_backup.log*' -exec chmod go-rwx {} +",
+    onlyif   => "find '${git_repo_dir}' -perm /077 -print -quit | grep -q . || find '${path}' -maxdepth 1 -name 'pe_nc_backup.log*' -perm /077 -print -quit | grep -q .",
+    provider => shell,
+    path     => ['/usr/bin', '/bin'],
+    require  => File[$git_repo_dir],
   }
 
   if $manage_ncio {
@@ -185,7 +211,7 @@ class pe_nc_backup (
     }
   } else {
     cron { 'pe_nc_backup':
-      command => $command,
+      command => "umask 077; ${command}",
       user    => $user,
       hour    => $cron_hour,
       minute  => $cron_minute,

@@ -51,7 +51,15 @@ describe 'pe_nc_backup', type: :class do
     FileUtils.mkdir_p([File.dirname(script), repo])
     File.write(script, catalogue.resource('File', 'pe_nc_backup script')[:content])
     File.chmod(0o755, script)
-    git('init', '--quiet')
+    File.chmod(0o700, path)
+    File.chmod(0o700, repo)
+    # The modes Puppet sets, and the state vcsrepo and the make-private exec leave behind.
+    old = File.umask(0o077)
+    begin
+      git('init', '--quiet')
+    ensure
+      File.umask(old)
+    end
   end
 
   def git(*args)
@@ -106,6 +114,14 @@ describe 'pe_nc_backup', type: :class do
     classifier.groups = groups.map { |g| (g['name'] == 'Production environment') ? g.merge('classes' => { 'role::web' => {} }) : g }
     expect(backup('third run, one group changed')).to match([0, %r{Committed changes to the node groups}])
     expect(commits).to eq(2)
+    # Checked before this spec runs git status, which rewrites the index under
+    # the spec's own umask. The script ran under a 022 umask too, yet the whole repo and log
+    # are private: nothing group or world accessible, files 0600, dirs 0700.
+    tree = Dir.glob(File.join(repo, '**', '*'), File::FNM_DOTMATCH).reject { |f| ['.', '..'].include?(File.basename(f)) }
+    tree += [repo, File.join(path, 'pe_nc_backup.log')]
+    expect(tree.reject { |f| (File.lstat(f).mode & 0o077).zero? }).to eq([])
+    expect(tree.select { |f| File.directory?(f) }.map { |d| File.stat(d).mode & 0o777 }.uniq).to eq([0o700])
+    expect(File.stat(File.join(repo, 'node_groups.json')).mode & 0o777).to eq(0o600)
     expect(git('diff', '--stat', 'HEAD~1', 'HEAD')).to match(%r{node_groups.json \| \d+ \+})
     expect(git('status', '--porcelain')).to eq('')
     puts git('log', '--format=    %h %s%n%w(0,6,6)%b') if ENV['E2E_VERBOSE']

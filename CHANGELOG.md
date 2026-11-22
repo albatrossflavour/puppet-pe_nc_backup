@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 **Bugfixes**
 
+- Security: backups are no longer world-readable. The backup directory and repo are 0700 and every file the backup writes is 0600, the systemd unit sets `UMask=0077` and the cron job runs under `umask 077`, and existing installs are tightened on the next Puppet run
 - The script exits non-zero on any failure and logs errors to every logger, not just the log file
 - A failed or partial fetch is never written to the repo or committed
 - `$CHILD_STATUS` was used without requiring `English`

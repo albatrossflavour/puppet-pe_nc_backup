@@ -18,8 +18,20 @@ describe 'pe_nc_backup' do
       context 'with defaults' do
         it { is_expected.to compile.with_all_deps }
 
-        it { is_expected.to contain_file('/opt/pe_nc_backup').with(ensure: 'directory', owner: 'pe-puppet', group: 'pe-puppet') }
-        it { is_expected.to contain_file('/opt/pe_nc_backup/bin').with(ensure: 'directory', owner: 'pe-puppet', group: 'pe-puppet') }
+        it { is_expected.to contain_file('/opt/pe_nc_backup').with(ensure: 'directory', owner: 'pe-puppet', group: 'pe-puppet', mode: '0700') }
+        it { is_expected.to contain_file('/opt/pe_nc_backup/bin').with(ensure: 'directory', owner: 'pe-puppet', group: 'pe-puppet', mode: '0755') }
+
+        it {
+          is_expected.to contain_file('/opt/pe_nc_backup/repo').with(ensure: 'directory', owner: 'pe-puppet', group: 'pe-puppet', mode: '0700')
+                                                               .that_requires('Vcsrepo[/opt/pe_nc_backup/repo]')
+        }
+
+        it {
+          is_expected.to contain_exec('pe_nc_backup make the backup private').with(
+            provider: 'shell',
+            command: "chmod -R u+rwX,go-rwx '/opt/pe_nc_backup/repo' && find '/opt/pe_nc_backup' -maxdepth 1 -name 'pe_nc_backup.log*' -exec chmod go-rwx {} +",
+          ).that_requires('File[/opt/pe_nc_backup/repo]')
+        }
 
         it {
           is_expected.to contain_file('pe_nc_backup script').with(
@@ -43,7 +55,7 @@ describe 'pe_nc_backup' do
 
         it {
           is_expected.to contain_cron('pe_nc_backup').with(
-            command: '/opt/pe_nc_backup/bin/pe_nc_backup /opt/pe_nc_backup',
+            command: 'umask 077; /opt/pe_nc_backup/bin/pe_nc_backup /opt/pe_nc_backup',
             user: 'pe-puppet',
             hour: '*',
             minute: '*/5',
@@ -107,7 +119,7 @@ describe 'pe_nc_backup' do
         it { is_expected.to compile.with_all_deps }
         it { is_expected.to contain_file('pe_nc_backup script').with_path('/srv/ncbackup/bin/pe_nc_backup') }
         it { is_expected.to contain_vcsrepo('/srv/ncbackup/repo') }
-        it { is_expected.to contain_cron('pe_nc_backup').with(command: '/srv/ncbackup/bin/pe_nc_backup /srv/ncbackup', hour: '2', minute: '15') }
+        it { is_expected.to contain_cron('pe_nc_backup').with(command: 'umask 077; /srv/ncbackup/bin/pe_nc_backup /srv/ncbackup', hour: '2', minute: '15') }
 
         it 'bakes the settings into the script' do
           expect(script_config(catalogue)).to include(
@@ -150,7 +162,7 @@ describe 'pe_nc_backup' do
 
         it 'runs the script as pe-puppet from a oneshot service' do
           content = catalogue.resource('File', '/etc/systemd/system/pe_nc_backup.service')[:content]
-          expect(content).to include("Type=oneshot\n", "User=pe-puppet\n", "Group=pe-puppet\n", "ExecStart=/opt/pe_nc_backup/bin/pe_nc_backup /opt/pe_nc_backup\n")
+          expect(content).to include("Type=oneshot\n", "User=pe-puppet\n", "Group=pe-puppet\n", "UMask=0077\n", "ExecStart=/opt/pe_nc_backup/bin/pe_nc_backup /opt/pe_nc_backup\n")
         end
 
         it 'runs every five minutes by default, like the cron job' do
@@ -170,7 +182,7 @@ describe 'pe_nc_backup' do
 
         it { is_expected.to compile.with_all_deps }
         it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.timer').with_content(%r{^OnCalendar=hourly$}) }
-        it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.service').with_content(%r{^User=ncbackup\nGroup=ncbackup\nExecStart=/srv/nc/bin/pe_nc_backup /srv/nc$}) }
+        it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.service').with_content(%r{^User=ncbackup\nGroup=ncbackup\nUMask=0077\nExecStart=/srv/nc/bin/pe_nc_backup /srv/nc$}) }
         it { is_expected.to contain_file('/srv/nc').with(owner: 'ncbackup', group: 'ncbackup') }
         it { is_expected.to contain_vcsrepo('/srv/nc/repo').with_user('ncbackup') }
         it { is_expected.to contain_exec('pe_nc_backup remove cron job').with_command(%r{crontab -u ncbackup -l\).*crontab -u ncbackup -\z}) }
@@ -181,7 +193,8 @@ describe 'pe_nc_backup' do
 
         it { is_expected.to compile.with_all_deps }
         it { is_expected.to contain_cron('pe_nc_backup').with(ensure: nil, user: 'ncbackup', minute: '*/5') }
-        it { is_expected.to contain_file('/opt/pe_nc_backup').with(owner: 'ncbackup', group: 'wheel') }
+        it { is_expected.to contain_file('/opt/pe_nc_backup').with(owner: 'ncbackup', group: 'wheel', mode: '0700') }
+        it { is_expected.to contain_file('/opt/pe_nc_backup/repo').with(owner: 'ncbackup', group: 'wheel', mode: '0700') }
         it { is_expected.to contain_file('pe_nc_backup script').with(owner: 'ncbackup', group: 'wheel', mode: '0755') }
         it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with_user('ncbackup') }
       end
