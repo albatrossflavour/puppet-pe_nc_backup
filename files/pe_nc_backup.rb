@@ -1,0 +1,271 @@
+# frozen_string_literal: true
+
+# Backs up the Puppet Enterprise node classifier's groups to a local git repo.
+#
+# This file is inlined into the pe_nc_backup script by templates/pe_nc_backup.epp,
+# which then calls PeNcBackup.main with the settings from the pe_nc_backup class.
+# Keeping the logic here lets the specs load and test it directly.
+
+require 'English'
+require 'fileutils'
+require 'json'
+require 'logger'
+require 'net/http'
+require 'open3'
+require 'openssl'
+require 'time'
+
+# Backs up the PE node classifier to git.
+module PeNcBackup
+  # A failure that stops the backup. The message is logged and the script exits 1.
+  class Error < StandardError; end
+
+  BACKUP_FILE = 'node_groups.json'
+
+  # Sends every message to all of the configured loggers.
+  class Log
+    SEVERITIES = {
+      debug: Logger::DEBUG,
+      info: Logger::INFO,
+      warn: Logger::WARN,
+      error: Logger::ERROR,
+      fatal: Logger::FATAL,
+    }.freeze
+
+    def initialize(loggers)
+      @loggers = loggers
+    end
+
+    SEVERITIES.each do |name, level|
+      define_method(name) do |message|
+        @loggers.each { |logger| logger.add(level, message) }
+      end
+    end
+  end
+
+  # Fetches the node groups from the classifier API, the same request ncio backup made.
+  class Classifier
+    attr_reader :uri
+
+    def initialize(host:, port:, cert:, key:, ca:, timeout:)
+      @uri = URI::HTTPS.build(host: host, port: port, path: '/classifier-api/v1/groups', query: 'inherited=false')
+      @cert = cert
+      @key = key
+      @ca = ca
+      @timeout = timeout
+    end
+
+    # @return [Array<Hash>] the node groups, in the order the API returned them
+    def groups
+      response = http.request(Net::HTTP::Get.new(@uri, 'Accept' => 'application/json'))
+      unless response.code == '200'
+        raise Error, "GET #{@uri} returned HTTP #{response.code}: #{response.body.to_s[0, 500]}"
+      end
+
+      parse(response.body)
+    rescue Net::OpenTimeout, Net::ReadTimeout => e
+      raise Error, "GET #{@uri} timed out after #{@timeout} seconds (#{e.class})"
+    rescue OpenSSL::OpenSSLError, SystemCallError, SocketError, IOError => e
+      raise Error, "GET #{@uri} failed: #{e.class}: #{e.message}"
+    end
+
+    private
+
+    def http
+      http = Net::HTTP.new(@uri.host, @uri.port)
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      http.cert_store = ca_store
+      http.cert = OpenSSL::X509::Certificate.new(File.read(@cert))
+      http.key = OpenSSL::PKey.read(File.read(@key))
+      http.open_timeout = @timeout
+      http.read_timeout = @timeout
+      http.write_timeout = @timeout if http.respond_to?(:write_timeout=)
+      http
+    end
+
+    # Trusts the Puppet CA and nothing else. A store of our own also keeps the
+    # CA out of OpenSSL's shared default store, which Puppet's SSLContext patch
+    # would otherwise add it to when this runs in the same process as Puppet.
+    def ca_store
+      store = OpenSSL::X509::Store.new
+      store.add_file(@ca)
+      store
+    end
+
+    def parse(body)
+      groups = JSON.parse(body)
+      unless groups.is_a?(Array) && !groups.empty? && groups.all? { |g| g.is_a?(Hash) }
+        raise Error, "GET #{@uri} did not return a non-empty JSON array of node groups"
+      end
+
+      groups
+    rescue JSON::ParserError => e
+      raise Error, "GET #{@uri} returned invalid JSON: #{e.message}"
+    end
+  end
+
+  # Runs git in the backup repo without going through a shell.
+  class Repo
+    attr_reader :dir
+
+    def initialize(dir)
+      @dir = dir
+    end
+
+    # True only when dir is the top level of a git work tree, so a plain
+    # directory inside some other repo does not count.
+    def git?
+      out, status = git('rev-parse', '--show-toplevel')
+      status.success? && File.realpath(out.strip) == File.realpath(@dir)
+    rescue SystemCallError
+      false
+    end
+
+    # Stages paths (including deletions) and commits them if anything changed.
+    #
+    # @return [Boolean] true if a commit was made, false if there was nothing to commit
+    def commit(paths, message, identity_email)
+      out, status = git('add', '--all', '--', *paths)
+      raise Error, "Unable to git add #{paths.join(' ')}: #{out.strip}" unless status.success?
+
+      _, status = git('diff', '--cached', '--quiet', '--', *paths)
+      return false if status.success?
+
+      out, status = git(*identity(identity_email), 'commit', '--quiet', '--file=-', '--', *paths, stdin: message)
+      raise Error, "Unable to make git commit: #{out.strip}" unless status.success?
+
+      true
+    end
+
+    def git(*args, stdin: nil)
+      Open3.capture2e('git', *args, chdir: @dir, stdin_data: stdin.to_s)
+    end
+
+    private
+
+    # Commits as pe_nc_backup when the user running the backup has no git identity.
+    def identity(email)
+      out, status = git('config', 'user.email')
+      return [] if status.success? && !out.strip.empty?
+
+      ['-c', 'user.name=pe_nc_backup', '-c', "user.email=#{email}"]
+    end
+  end
+
+  # One backup run: fetch the groups, write them to the repo, and commit.
+  class Runner
+    def initialize(config, log)
+      @config = config
+      @log = log
+      @path = config['path']
+      @repo = Repo.new(File.join(@path, 'repo'))
+    end
+
+    # @return [Integer] the exit code, 0 for success and 1 for any failure
+    def run
+      @log.info("pe_nc_backup started at #{Time.now}")
+      check_repo
+      certname = resolve_certname
+      groups = classifier(certname).groups
+      @log.info("Retrieved #{groups.size} node groups")
+      write_file(BACKUP_FILE, "#{JSON.pretty_generate(groups)}\n")
+      commit(certname)
+      @log.info("Backup script complete at #{Time.now}")
+      0
+    rescue Error => e
+      @log.error(e.message)
+      @log.error('Errors were encountered backing up the node classifier, nothing was committed')
+      1
+    end
+
+    private
+
+    def check_repo
+      raise Error, "Backup repo directory does not exist at #{@repo.dir}" unless File.directory?(@repo.dir)
+      raise Error, "This does not appear to be a git repo here at #{@repo.dir}" unless @repo.git?
+    end
+
+    def resolve_certname
+      certname = @config['certname'].to_s
+      if certname.empty?
+        out, status = Open3.capture2e(File.join(@config.fetch('puppet_bindir', '/opt/puppetlabs/puppet/bin'), 'puppet'), 'config', 'print', 'certname')
+        raise Error, "Unable to determine the certname: #{out.strip}" unless status.success?
+
+        certname = out.strip
+      end
+      @log.info("determined certname to be: #{certname}")
+      certname
+    rescue SystemCallError => e
+      raise Error, "Unable to determine the certname: #{e.message}"
+    end
+
+    def classifier(certname)
+      ssl_dir = @config['ssl_dir']
+      files = {
+        cert: File.join(ssl_dir, 'certs', "#{certname}.pem"),
+        key: File.join(ssl_dir, 'private_keys', "#{certname}.pem"),
+        ca: File.join(ssl_dir, 'certs', 'ca.pem'),
+      }
+      files.each do |kind, file|
+        raise Error, "#{kind} file not found at #{file}" unless File.file?(file)
+      end
+
+      host = @config['classifier_host'].to_s.empty? ? certname : @config['classifier_host']
+      classifier = Classifier.new(host: host, port: Integer(@config.fetch('classifier_port', 4433)),
+                                  timeout: Integer(@config.fetch('timeout', 60)), **files)
+      @log.info("Fetching node groups from #{classifier.uri}")
+      classifier
+    end
+
+    # Writes to a temporary file outside the repo and moves it into place, so
+    # the repo never holds a partly written file.
+    def write_file(relative, content)
+      target = File.join(@repo.dir, relative)
+      FileUtils.mkdir_p(File.dirname(target))
+      tmp = File.join(@path, ".#{File.basename(relative)}.#{Process.pid}.tmp")
+      File.write(tmp, content)
+      FileUtils.mv(tmp, target)
+    ensure
+      FileUtils.rm_f(tmp) if tmp
+    end
+
+    def commit(certname)
+      message = "Update node groups by pe_nc_backup on #{certname} at #{Time.now.iso8601}\n"
+      if @repo.commit([BACKUP_FILE], message, "pe_nc_backup@#{certname}")
+        @log.info('Committed changes to the node groups')
+      else
+        @log.info('No changes to the node groups, nothing to commit')
+      end
+    end
+  end
+
+  # Builds the loggers from the config.
+  def self.loggers(config)
+    logger = Logger.new(File.join(config['path'], 'pe_nc_backup.log'), 10, 1_024_000)
+    logger.level = config.fetch('log_level', 'info')
+    loggers = [logger]
+    if config.fetch('stdout_log', true)
+      stdout = Logger.new($stdout)
+      stdout.level = config.fetch('log_level_stdout', 'error')
+      loggers << stdout
+    end
+    loggers
+  end
+
+  # Runs a backup and returns the exit code.
+  def self.main(config, loggers = nil)
+    raise Error, "Directory does not exist at #{config['path']}" unless File.directory?(config['path'].to_s)
+
+    log = Log.new(loggers || self.loggers(config))
+    begin
+      Runner.new(config, log).run
+    rescue StandardError => e
+      log.fatal("Unexpected error: #{e.class}: #{e.message}")
+      1
+    end
+  rescue Error => e
+    warn e.message
+    1
+  end
+end
