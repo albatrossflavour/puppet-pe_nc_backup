@@ -31,11 +31,6 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v20
         with:
           globs: '*.md'
-      - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v20
-        with:
-          globs: |
-            *.md
 
   spec:
     name: Puppet ${{ matrix.puppet }} (Ruby ${{ matrix.ruby }})
