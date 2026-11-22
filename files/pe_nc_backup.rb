@@ -105,6 +105,36 @@ module PeNcBackup
     end
   end
 
+  # Drops excluded groups and stripped fields, then sorts the groups by id and
+  # every hash by key, so unchanged data always serialises to the same bytes.
+  # Arrays keep their order, since order matters in a rule.
+  class Filter
+    def initialize(exclude_groups: [], strip_fields: [])
+      @exclude = exclude_groups.map { |pattern| Regexp.new(pattern) }
+      @strip = strip_fields
+    rescue RegexpError => e
+      raise Error, "Invalid exclude_groups pattern: #{e.message}"
+    end
+
+    def apply(groups)
+      kept = groups.reject { |group| @exclude.any? { |re| re.match?(group['name'].to_s) } }
+      raise Error, "exclude_groups matched all #{groups.size} node groups, refusing to write an empty backup" if kept.empty?
+
+      kept.map { |group| sort_keys(group.reject { |key, _| @strip.include?(key) }) }
+          .sort_by { |group| [group['id'].to_s, group['name'].to_s] }
+    end
+
+    private
+
+    def sort_keys(value)
+      case value
+      when Hash then value.keys.sort.to_h { |key| [key, sort_keys(value[key])] }
+      when Array then value.map { |item| sort_keys(item) }
+      else value
+      end
+    end
+  end
+
   # Runs git in the backup repo without going through a shell.
   class Repo
     attr_reader :dir
@@ -166,9 +196,11 @@ module PeNcBackup
     def run
       @log.info("pe_nc_backup started at #{Time.now}")
       check_repo
+      filter = Filter.new(exclude_groups: @config.fetch('exclude_groups', nil) || [], strip_fields: @config.fetch('strip_fields', nil) || [])
       certname = resolve_certname
-      groups = classifier(certname).groups
-      @log.info("Retrieved #{groups.size} node groups")
+      fetched = classifier(certname).groups
+      groups = filter.apply(fetched)
+      @log.info("Retrieved #{fetched.size} node groups, keeping #{groups.size}")
       write_file(BACKUP_FILE, "#{JSON.pretty_generate(groups)}\n")
       commit(certname)
       @log.info("Backup script complete at #{Time.now}")

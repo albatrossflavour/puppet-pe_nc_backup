@@ -76,6 +76,8 @@ describe 'pe_nc_backup' do
             'log_level' => 'info',
             'log_level_stdout' => 'error',
             'stdout_log' => true,
+            'exclude_groups' => [],
+            'strip_fields' => [],
           )
         end
 
@@ -198,6 +200,28 @@ describe 'pe_nc_backup' do
         end
       end
 
+      context 'with noise controls' do
+        let(:params) { { exclude_groups: ['^PE ', 'Test$'], strip_fields: ['serial_number', 'last_edited'] } }
+
+        it { is_expected.to compile.with_all_deps }
+
+        it 'bakes the patterns and fields into the script unchanged' do
+          expect(script_config(catalogue)).to include('exclude_groups' => ['^PE ', 'Test$'], 'strip_fields' => ['serial_number', 'last_edited'])
+        end
+
+        it 'renders a script that is valid Ruby' do
+          expect(RubyVM::InstructionSequence.compile(catalogue.resource('File', 'pe_nc_backup script')[:content])).to be_truthy
+        end
+      end
+
+      context 'with a pattern containing quotes and a heredoc terminator' do
+        let(:params) { { exclude_groups: ["it's \"quoted\"\nCONFIG\n\\d+"] } }
+
+        it 'survives the trip into the script' do
+          expect(script_config(catalogue)['exclude_groups']).to eq(["it's \"quoted\"\nCONFIG\n\\d+"])
+        end
+      end
+
       context 'with manage_ncio' do
         let(:params) { { manage_ncio: true } }
 
@@ -216,6 +240,8 @@ describe 'pe_nc_backup' do
           { schedule_type: 'anacron' },
           { on_calendar: '' },
           { user: '' },
+          { exclude_groups: 'PE' },
+          { strip_fields: [''] },
           { log_level: 'verbose' },
         ].each do |bad|
           context "with #{bad}" do

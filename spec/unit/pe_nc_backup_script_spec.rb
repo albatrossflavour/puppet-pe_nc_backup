@@ -9,7 +9,7 @@ describe 'pe_nc_backup script' do
     it 'writes the groups in the format ncio backup wrote and commits them' do
       expect(run_backup).to eq(0)
       content = File.read(File.join(repo, 'node_groups.json'))
-      expect(content).to eq("#{JSON.pretty_generate(JSON.parse(classifier.body || JSON.generate(classifier.groups)))}\n")
+      expect(content).to eq("#{JSON.pretty_generate(PeNcBackup::Filter.new.apply(classifier.groups))}\n")
       expect(JSON.parse(content)).to be_an(Array)
       expect(commit_count(repo)).to eq(1)
       expect(git(repo, 'status', '--porcelain')).to eq('')
@@ -76,6 +76,105 @@ describe 'pe_nc_backup script' do
     it 'does not leave temporary files behind' do
       run_backup
       expect(Dir.children(path).sort).to eq(['repo'])
+    end
+  end
+
+  describe 'noise controls and ordering' do
+    it 'sorts the groups by id' do
+      run_backup
+      expect(backup_json.map { |g| g['name'] }).to eq(['All Nodes', 'Development', 'Production'])
+    end
+
+    it 'sorts every hash by key, at every depth' do
+      classifier.groups = [FakeClassifier.group('All Nodes', '0', classes: { 'zz' => { 'b' => 1, 'a' => { 'y' => 1, 'x' => 2 } }, 'aa' => {} })]
+      run_backup
+      group = backup_json.first
+      expect(group.keys).to eq(group.keys.sort)
+      expect(group['classes'].keys).to eq(['aa', 'zz'])
+      expect(group['classes']['zz'].keys).to eq(['a', 'b'])
+      expect(group['classes']['zz']['a'].keys).to eq(['x', 'y'])
+    end
+
+    it 'keeps the order of arrays, since rule order matters' do
+      rule = ['or', ['=', 'name', 'zeta'], ['=', 'name', 'alpha']]
+      classifier.groups = [FakeClassifier.group('All Nodes', '0', rule: rule)]
+      run_backup
+      expect(backup_json.first['rule']).to eq(rule)
+    end
+
+    it 'writes byte-identical output, and commits nothing, when the API reorders the same data' do
+      run_backup
+      first = File.read(File.join(repo, 'node_groups.json'))
+      classifier.groups = groups.reverse.map { |g| g.to_a.reverse.to_h }
+      run_backup
+      expect(File.read(File.join(repo, 'node_groups.json'))).to eq(first)
+      expect(commit_count(repo)).to eq(1)
+    end
+
+    context 'with exclude_groups' do
+      let(:extra_config) { { 'exclude_groups' => ['^Dev', 'Nothing matches this'] } }
+
+      it 'leaves out the groups whose name matches any pattern' do
+        expect(run_backup).to eq(0)
+        expect(backup_json.map { |g| g['name'] }).to eq(['All Nodes', 'Production'])
+        expect(log_io.string).to include('Retrieved 3 node groups, keeping 2')
+      end
+
+      it 'matches a pattern anywhere in the name unless it is anchored' do
+        expect(run_backup(config.merge('exclude_groups' => ['duct']))).to eq(0)
+        expect(backup_json.map { |g| g['name'] }).to eq(['All Nodes', 'Development'])
+      end
+
+      it 'commits nothing when only an excluded group changes' do
+        run_backup
+        classifier.groups = groups.map { |g| (g['name'] == 'Development') ? g.merge('environment' => 'other') : g }
+        run_backup
+        expect(commit_count(repo)).to eq(1)
+      end
+    end
+
+    it 'refuses to write an empty backup when every group is excluded' do
+      expect(run_backup(config.merge('exclude_groups' => ['.']))).to eq(1)
+      expect(File.exist?(File.join(repo, 'node_groups.json'))).to be(false)
+      expect(stdout_io.string).to include('exclude_groups matched all 3 node groups')
+    end
+
+    it 'fails before fetching anything when a pattern is not a valid regex' do
+      expect(run_backup(config.merge('exclude_groups' => ['(unclosed']))).to eq(1)
+      expect(classifier.requests).to be_empty
+      expect(stdout_io.string).to include('Invalid exclude_groups pattern')
+    end
+
+    context 'with strip_fields' do
+      let(:extra_config) { { 'strip_fields' => ['serial_number', 'last_edited'] } }
+
+      it 'removes the fields from every group' do
+        run_backup
+        backup_json.each do |g|
+          expect(g).not_to include('serial_number', 'last_edited')
+          expect(g).to include('name', 'id', 'rule', 'classes')
+        end
+      end
+
+      it 'only strips top-level group fields' do
+        classifier.groups = [FakeClassifier.group('All Nodes', '0', classes: { 'x' => { 'serial_number' => 7 } })]
+        run_backup
+        expect(backup_json.first['classes']).to eq('x' => { 'serial_number' => 7 })
+      end
+
+      it 'commits nothing when only a stripped field changes' do
+        run_backup
+        classifier.groups = groups.map { |g| g.merge('serial_number' => 99, 'last_edited' => '2026-11-23T00:00:00.000Z') }
+        run_backup
+        expect(commit_count(repo)).to eq(1)
+      end
+    end
+
+    it 'commits when a stripped field changes if strip_fields is not set' do
+      run_backup
+      classifier.groups = groups.map { |g| g.merge('serial_number' => 99) }
+      run_backup
+      expect(commit_count(repo)).to eq(2)
     end
   end
 

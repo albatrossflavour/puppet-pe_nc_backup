@@ -25,6 +25,11 @@
 # @param user The user that owns the backup directory and runs the backup. It must be able to read the
 #   host's certificate and private key under `ssl_dir`.
 # @param group The group that owns the backup directory.
+# @param exclude_groups Regular expressions (Ruby syntax) matched against each node group's name. Matching
+#   groups are left out of the backup. Leaving out a group that others inherit from means the backup can no
+#   longer be restored as a whole hierarchy.
+# @param strip_fields Fields removed from every node group before it is written, for example
+#   `['serial_number', 'last_edited']` to stop routine console activity producing commits.
 # @param certname The certname of the PE primary server, which names the certificate and key the backup
 #   authenticates with. Set this when the certname is not the node's own, for example when it differs from the FQDN.
 # @param classifier_host The host serving the node classifier API. Defaults to the certname, which suits a
@@ -51,6 +56,8 @@ class pe_nc_backup (
   String[1]                                       $on_calendar        = '*:0/5',
   String[1]                                       $user               = 'pe-puppet',
   String[1]                                       $group              = 'pe-puppet',
+  Array[String[1]]                                $exclude_groups     = [],
+  Array[String[1]]                                $strip_fields       = [],
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
@@ -82,6 +89,8 @@ class pe_nc_backup (
           log_level        => $log_level,
           log_level_stdout => $log_level_stdout,
           stdout_log       => $stdout_log,
+          exclude_groups   => $exclude_groups,
+          strip_fields     => $strip_fields,
         },
       })
     ;
