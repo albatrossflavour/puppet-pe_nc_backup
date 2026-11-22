@@ -8,20 +8,23 @@
 #
 # Author: Jesse Reynolds - Puppet, Inc. - jesse.reynolds@puppet.com
 
+require 'English'
+require 'json'
 require 'logger'
 require 'open3'
 require 'time'
 
+LOG_SEVERITIES = {
+  debug: Logger::DEBUG,
+  info: Logger::INFO,
+  warn: Logger::WARN,
+  error: Logger::ERROR,
+  fatal: Logger::FATAL,
+}.freeze
+
 def log(loggers, severity, message)
   loggers.each do |logger|
-    case severity
-    when :info
-      logger.info(message)
-    when :warn
-      logger.warn(message)
-    when :error
-      logger.error(message)
-    end
+    logger.add(LOG_SEVERITIES.fetch(severity, Logger::UNKNOWN), message)
   end
 end
 
@@ -60,7 +63,7 @@ log(loggers, :info, "pe_nc_backup started at #{Time.now}")
 
 repo_dir = File.join(my_dir, 'repo')
 unless File.directory?(repo_dir)
-  puts "Creating repo dir at #{repo_dir}"
+  log(loggers, :info, "Creating repo dir at #{repo_dir}")
   Dir.mkdir(repo_dir)
 end
 
@@ -81,10 +84,16 @@ unless File.file?(agent_key)
   exit 1
 end
 
+# ncio writes to a temporary file outside the repo, which only replaces the
+# backup once ncio has succeeded and produced a non-empty list of groups. A
+# failed or partial run never reaches the repo, so it can never be committed.
+tmpfile = File.join(my_dir, "#{thefile}.tmp")
+File.delete(tmpfile) if File.exist?(tmpfile)
+
 cmd = "#{puppet_bindir}/ncio --uri 'https://#{certname}:4433/classifier-api/v1' "
 cmd += "--cert '#{agent_cert}' "
 cmd += "--key '#{agent_key}' "
-cmd += "backup > '#{repo_dir}/#{thefile}'"
+cmd += "backup > '#{tmpfile}'"
 
 log(loggers, :info, "Running command: [#{cmd}]")
 
@@ -97,12 +106,26 @@ Open3.popen2e(cmd) do |_stdin, stdout_err, wait_thr|
 
   exit_status = wait_thr.value
   if exit_status.success?
-    log(loggers, :info, 'Node groups backed up successfully.')
+    log(loggers, :info, 'ncio backup completed.')
   else
     log(loggers, :error, "Node groups backup has failed! ncio: #{exit_status}.")
     failures += 1
   end
 end
+
+if failures.zero?
+  begin
+    groups = JSON.parse(File.read(tmpfile))
+    raise 'expected a non-empty JSON array of node groups' unless groups.is_a?(Array) && !groups.empty?
+
+    File.rename(tmpfile, File.join(repo_dir, thefile))
+    log(loggers, :info, "Node groups backed up successfully (#{groups.size} groups).")
+  rescue StandardError => e
+    log(loggers, :error, "Node groups backup has failed! ncio output in #{tmpfile} is not usable: #{e.message}")
+    failures += 1
+  end
+end
+File.delete(tmpfile) if File.exist?(tmpfile)
 
 # update git:
 
@@ -114,13 +137,13 @@ if system('git status --porcelain > /dev/null')
     # TODO: if the origin remote exists, try a pull from it (errors are non-fatal)
 
     unless system("git add #{thefile}")
-      logger.error "Unable to git add #{thefile}: #{$CHILD_STATUS}"
+      log(loggers, :error, "Unable to git add #{thefile}: #{$CHILD_STATUS}")
       failures += 1
     end
 
     if `git status --porcelain #{thefile}` =~ %r{^\s*[AM]}
       unless system("git commit --quiet -m 'Update node groups by pe_nc_backup on #{certname} at #{timestamp}'")
-        logger.error "Unable to make git commit: #{$CHILD_STATUS}"
+        log(loggers, :error, "Unable to make git commit: #{$CHILD_STATUS}")
         failures += 1
       end
     end
@@ -138,6 +161,6 @@ end
 
 log(loggers, :info, "Backup script complete at #{Time.now}")
 if failures > 0
-  logger.error "Errors (#{failures}) were encountered backing up Puppet Enterprise"
+  log(loggers, :error, "Errors (#{failures}) were encountered backing up Puppet Enterprise")
   exit 1
 end
