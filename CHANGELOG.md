@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 **Breaking**
 
-- Requires Puppet 7, 8, or 9, puppetlabs-stdlib 9 or 10, and puppetlabs-vcsrepo 6, 7, or 8. Supported platforms are now RHEL 8 and 9 and Ubuntu 22.04 and 24.04
+- Requires Puppet 7, 8, or 9, puppetlabs-stdlib 9 or 10, and puppetlabs-vcsrepo 6, 7, or 8. Supported platforms are now RHEL, Rocky, AlmaLinux, and Oracle Linux 8 and 9, and Ubuntu 22.04 and 24.04
 - The backup no longer uses the ncio gem, and the module no longer installs it. Set `manage_ncio => true` to keep it for `ncio restore`
 - Groups are written sorted by id with sorted keys, so the first run after upgrading may commit once to reorder the existing backup
 - The script now fails, writing nothing, if the repo directory is missing or is not the top of a git repo

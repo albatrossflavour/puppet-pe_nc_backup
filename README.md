@@ -132,7 +132,7 @@ See [REFERENCE.md](REFERENCE.md).
 
 ## Limitations
 
-Tested on PE 2019.8.z, PE 2021.7.z, and PE 2023.2. The unit and end-to-end tests run on Puppet 7, 8, and 9.
+Tested on PE 2019.8.z, PE 2021.7.z, and PE 2023.2. 3.0.0 is being validated on PE 2026.0.1. The unit and end-to-end tests run on Puppet 7, 8, and 9.
 
 ## Development
 
