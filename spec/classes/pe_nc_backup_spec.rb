@@ -49,6 +49,22 @@ describe 'pe_nc_backup' do
           ).that_requires(['File[pe_nc_backup script]', 'Vcsrepo[/opt/pe_nc_backup/repo]'])
         }
 
+        it { is_expected.to contain_exec('pe_nc_backup systemctl daemon-reload').with(command: 'systemctl daemon-reload', refreshonly: true) }
+
+        it 'cleans up after systemd scheduling, only if it was used' do
+          is_expected.to contain_exec('pe_nc_backup disable timer').with(
+            command: 'systemctl disable --now pe_nc_backup.timer',
+            onlyif: 'test -f /etc/systemd/system/pe_nc_backup.timer',
+          )
+          ['/etc/systemd/system/pe_nc_backup.service', '/etc/systemd/system/pe_nc_backup.timer'].each do |unit|
+            is_expected.to contain_file(unit).with_ensure('absent')
+                                             .that_requires('Exec[pe_nc_backup disable timer]')
+                                             .that_notifies('Exec[pe_nc_backup systemctl daemon-reload]')
+          end
+        end
+
+        it { is_expected.not_to contain_service('pe_nc_backup.timer') }
+
         it 'bakes the default settings into the script' do
           expect(script_config(catalogue)).to include(
             'path' => '/opt/pe_nc_backup',
@@ -98,6 +114,70 @@ describe 'pe_nc_backup' do
         end
       end
 
+      context 'with systemd scheduling' do
+        let(:params) { { schedule_type: 'systemd' } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', user: 'pe-puppet') }
+        it { is_expected.not_to contain_exec('pe_nc_backup disable timer') }
+
+        it {
+          is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.service')
+            .with(ensure: 'file', owner: 'root', group: 'root', mode: '0644')
+            .that_notifies('Exec[pe_nc_backup systemctl daemon-reload]')
+        }
+
+        it {
+          is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.timer')
+            .with(ensure: 'file', owner: 'root', group: 'root', mode: '0644')
+            .that_notifies('Exec[pe_nc_backup systemctl daemon-reload]')
+        }
+
+        it 'runs the script as pe-puppet from a oneshot service' do
+          content = catalogue.resource('File', '/etc/systemd/system/pe_nc_backup.service')[:content]
+          expect(content).to include("Type=oneshot\n", "User=pe-puppet\n", "Group=pe-puppet\n", "ExecStart=/opt/pe_nc_backup/bin/pe_nc_backup /opt/pe_nc_backup\n")
+        end
+
+        it 'runs every five minutes by default, like the cron job' do
+          content = catalogue.resource('File', '/etc/systemd/system/pe_nc_backup.timer')[:content]
+          expect(content).to include("OnCalendar=*:0/5\n", "WantedBy=timers.target\n")
+        end
+
+        it {
+          is_expected.to contain_service('pe_nc_backup.timer').with(ensure: 'running', enable: true)
+                                                              .that_requires(['File[pe_nc_backup script]', 'Vcsrepo[/opt/pe_nc_backup/repo]', 'Exec[pe_nc_backup systemctl daemon-reload]'])
+                                                              .that_subscribes_to(['File[/etc/systemd/system/pe_nc_backup.service]', 'File[/etc/systemd/system/pe_nc_backup.timer]'])
+        }
+      end
+
+      context 'with systemd scheduling, a custom calendar, user and path' do
+        let(:params) { { schedule_type: 'systemd', on_calendar: 'hourly', user: 'ncbackup', group: 'ncbackup', path: '/srv/nc' } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.timer').with_content(%r{^OnCalendar=hourly$}) }
+        it { is_expected.to contain_file('/etc/systemd/system/pe_nc_backup.service').with_content(%r{^User=ncbackup\nGroup=ncbackup\nExecStart=/srv/nc/bin/pe_nc_backup /srv/nc$}) }
+        it { is_expected.to contain_file('/srv/nc').with(owner: 'ncbackup', group: 'ncbackup') }
+        it { is_expected.to contain_vcsrepo('/srv/nc/repo').with_user('ncbackup') }
+        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', user: 'ncbackup') }
+      end
+
+      context 'with cron scheduling and a custom user' do
+        let(:params) { { user: 'ncbackup', group: 'wheel' } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: nil, user: 'ncbackup', minute: '*/5') }
+        it { is_expected.to contain_file('/opt/pe_nc_backup').with(owner: 'ncbackup', group: 'wheel') }
+        it { is_expected.to contain_file('pe_nc_backup script').with(owner: 'ncbackup', group: 'wheel', mode: '0755') }
+        it { is_expected.to contain_vcsrepo('/opt/pe_nc_backup/repo').with_user('ncbackup') }
+      end
+
+      context 'with cron settings while scheduling with systemd' do
+        let(:params) { { schedule_type: 'systemd', cron_hour: '3', cron_minute: '0' } }
+
+        it { is_expected.to compile.with_all_deps }
+        it { is_expected.to contain_cron('pe_nc_backup').with(ensure: 'absent', hour: nil, minute: nil) }
+      end
+
       context 'with a remote classifier' do
         let(:params) { { classifier_host: 'console.example.com', classifier_port: 8443, classifier_timeout: 10 } }
 
@@ -133,6 +213,9 @@ describe 'pe_nc_backup' do
           { classifier_timeout: 0 },
           { manage_ncio: 'yes' },
           { certname: '' },
+          { schedule_type: 'anacron' },
+          { on_calendar: '' },
+          { user: '' },
           { log_level: 'verbose' },
         ].each do |bad|
           context "with #{bad}" do

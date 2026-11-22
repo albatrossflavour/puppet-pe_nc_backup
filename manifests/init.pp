@@ -15,8 +15,16 @@
 # @param log_level_stdout The verbosity of the Ruby logger writing to STDOUT. Possible values: 'debug',
 #   'info', 'warn', 'error', 'fatal'.
 # @param stdout_log Whether to enable the STDOUT logger.
-# @param cron_hour The hour for the cron job.
-# @param cron_minute The minute for the cron job.
+# @param cron_hour The hour for the cron job. Only used when `schedule_type` is `cron`.
+# @param cron_minute The minute for the cron job. Only used when `schedule_type` is `cron`.
+# @param schedule_type How to run the backup: `cron` (the default, as in earlier releases) or `systemd`, which
+#   installs a service and timer instead. The systemd timer avoids needing a cron.allow entry for the user on
+#   hardened hosts. Switching type removes the other one.
+# @param on_calendar When the systemd timer runs, as a systemd OnCalendar expression. Only used when
+#   `schedule_type` is `systemd`. The default matches the cron default of every five minutes.
+# @param user The user that owns the backup directory and runs the backup. It must be able to read the
+#   host's certificate and private key under `ssl_dir`.
+# @param group The group that owns the backup directory.
 # @param certname The certname of the PE primary server, which names the certificate and key the backup
 #   authenticates with. Set this when the certname is not the node's own, for example when it differs from the FQDN.
 # @param classifier_host The host serving the node classifier API. Defaults to the certname, which suits a
@@ -39,14 +47,21 @@ class pe_nc_backup (
   Integer[1]                                      $classifier_timeout = 60,
   Boolean                                         $manage_ncio        = false,
   String[1]                                       $certname           = $trusted['certname'],
+  Enum['cron', 'systemd']                         $schedule_type      = 'cron',
+  String[1]                                       $on_calendar        = '*:0/5',
+  String[1]                                       $user               = 'pe-puppet',
+  String[1]                                       $group              = 'pe-puppet',
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
+  $command      = "${bin_dir}/pe_nc_backup ${path}"
+  $service_file = '/etc/systemd/system/pe_nc_backup.service'
+  $timer_file   = '/etc/systemd/system/pe_nc_backup.timer'
 
   file {
     default:
-      owner => 'pe-puppet',
-      group => 'pe-puppet',
+      owner => $user,
+      group => $group,
       mode  => '0644',
     ;
     [$path, $bin_dir]:
@@ -75,7 +90,7 @@ class pe_nc_backup (
   vcsrepo { $git_repo_dir:
     ensure   => present,
     provider => git,
-    user     => 'pe-puppet',
+    user     => $user,
     require  => File[$path],
   }
 
@@ -86,11 +101,68 @@ class pe_nc_backup (
     }
   }
 
-  cron { 'pe_nc_backup':
-    command => "${bin_dir}/pe_nc_backup ${path}",
-    user    => 'pe-puppet',
-    hour    => $cron_hour,
-    minute  => $cron_minute,
-    require => [File['pe_nc_backup script'], Vcsrepo[$git_repo_dir],],
+  # Plain file resources and a daemon-reload exec keep the module free of a
+  # puppet/systemd dependency for two unit files.
+  exec { 'pe_nc_backup systemctl daemon-reload':
+    command     => 'systemctl daemon-reload',
+    path        => ['/usr/bin', '/bin'],
+    refreshonly => true,
+  }
+
+  if $schedule_type == 'systemd' {
+    file {
+      default:
+        ensure => file,
+        owner  => 'root',
+        group  => 'root',
+        mode   => '0644',
+        notify => Exec['pe_nc_backup systemctl daemon-reload'],
+      ;
+      $service_file:
+        content => epp('pe_nc_backup/pe_nc_backup.service.epp', {
+          user    => $user,
+          group   => $group,
+          command => $command,
+        }),
+      ;
+      $timer_file:
+        content => epp('pe_nc_backup/pe_nc_backup.timer.epp', {
+          on_calendar => $on_calendar,
+        }),
+      ;
+    }
+
+    service { 'pe_nc_backup.timer':
+      ensure    => running,
+      enable    => true,
+      require   => [File['pe_nc_backup script'], Vcsrepo[$git_repo_dir], Exec['pe_nc_backup systemctl daemon-reload']],
+      subscribe => File[$service_file, $timer_file],
+    }
+
+    cron { 'pe_nc_backup':
+      ensure => absent,
+      user   => $user,
+    }
+  } else {
+    cron { 'pe_nc_backup':
+      command => $command,
+      user    => $user,
+      hour    => $cron_hour,
+      minute  => $cron_minute,
+      require => [File['pe_nc_backup script'], Vcsrepo[$git_repo_dir],],
+    }
+
+    # Only does anything when switching back from systemd.
+    exec { 'pe_nc_backup disable timer':
+      command => 'systemctl disable --now pe_nc_backup.timer',
+      onlyif  => "test -f ${timer_file}",
+      path    => ['/usr/bin', '/bin'],
+    }
+
+    file { [$service_file, $timer_file]:
+      ensure  => absent,
+      require => Exec['pe_nc_backup disable timer'],
+      notify  => Exec['pe_nc_backup systemctl daemon-reload'],
+    }
   }
 }
