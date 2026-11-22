@@ -36,6 +36,9 @@
 # @param exclude_groups Regular expressions (Ruby syntax) matched against each node group's name. Matching
 #   groups are left out of the backup. Leaving out a group that others inherit from means the backup can no
 #   longer be restored as a whole hierarchy.
+# @param exclude_environments Regular expressions (Ruby syntax) matched against each node group's environment.
+#   Matching groups are left out of the backup, for example `['^rolling_deployment_']` for the short-lived groups
+#   that CD4PE rolling deployments create. The same restore caveat applies as for `exclude_groups`.
 # @param strip_fields Fields removed from every node group before it is written, for example
 #   `['serial_number', 'last_edited']` to stop routine console activity producing commits.
 # @param split_files Write one file per node group, `groups/<name>-<id>.json`, instead of a single
@@ -51,25 +54,26 @@
 #   still a convenient way to restore a backup.
 #
 class pe_nc_backup (
-  String                                          $path               = '/opt/pe_nc_backup',
-  String                                          $ssl_dir            = '/etc/puppetlabs/puppet/ssl',
-  Enum['debug', 'info', 'warn', 'error', 'fatal'] $log_level          = 'info',
-  Enum['debug', 'info', 'warn', 'error', 'fatal'] $log_level_stdout   = 'error',
-  Boolean                                         $stdout_log         = true,
-  String                                          $cron_hour          = '*',
-  String                                          $cron_minute        = '*/5',
-  Enum['cron', 'systemd']                         $schedule_type      = 'cron',
-  String[1]                                       $on_calendar        = '*:0/5',
-  String[1]                                       $user               = 'pe-puppet',
-  String[1]                                       $group              = 'pe-puppet',
-  Array[String[1]]                                $exclude_groups     = [],
-  Array[String[1]]                                $strip_fields       = [],
-  Boolean                                         $split_files        = false,
-  String[1]                                       $certname           = $trusted['certname'],
-  Optional[Stdlib::Host]                          $classifier_host    = undef,
-  Integer[1, 65535]                               $classifier_port    = 4433,
-  Integer[1]                                      $classifier_timeout = 60,
-  Boolean                                         $manage_ncio        = false,
+  String                                          $path                 = '/opt/pe_nc_backup',
+  String                                          $ssl_dir              = '/etc/puppetlabs/puppet/ssl',
+  Enum['debug', 'info', 'warn', 'error', 'fatal'] $log_level            = 'info',
+  Enum['debug', 'info', 'warn', 'error', 'fatal'] $log_level_stdout     = 'error',
+  Boolean                                         $stdout_log           = true,
+  String                                          $cron_hour            = '*',
+  String                                          $cron_minute          = '*/5',
+  Enum['cron', 'systemd']                         $schedule_type        = 'cron',
+  String[1]                                       $on_calendar          = '*:0/5',
+  String[1]                                       $user                 = 'pe-puppet',
+  String[1]                                       $group                = 'pe-puppet',
+  Array[String[1]]                                $exclude_groups       = [],
+  Array[String[1]]                                $exclude_environments = [],
+  Array[String[1]]                                $strip_fields         = [],
+  Boolean                                         $split_files          = false,
+  String[1]                                       $certname             = $trusted['certname'],
+  Optional[Stdlib::Host]                          $classifier_host      = undef,
+  Integer[1, 65535]                               $classifier_port      = 4433,
+  Integer[1]                                      $classifier_timeout   = 60,
+  Boolean                                         $manage_ncio          = false,
 ) {
   $git_repo_dir = "${path}/repo"
   $bin_dir      = "${path}/bin"
@@ -92,18 +96,19 @@ class pe_nc_backup (
       mode    => '0755',
       content => epp('pe_nc_backup/pe_nc_backup.epp', {
         config => {
-          path             => $path,
-          certname         => $certname,
-          ssl_dir          => $ssl_dir,
-          classifier_host  => $classifier_host,
-          classifier_port  => $classifier_port,
-          timeout          => $classifier_timeout,
-          log_level        => $log_level,
-          log_level_stdout => $log_level_stdout,
-          stdout_log       => $stdout_log,
-          exclude_groups   => $exclude_groups,
-          strip_fields     => $strip_fields,
-          split_files      => $split_files,
+          path                 => $path,
+          certname             => $certname,
+          ssl_dir              => $ssl_dir,
+          classifier_host      => $classifier_host,
+          classifier_port      => $classifier_port,
+          timeout              => $classifier_timeout,
+          log_level            => $log_level,
+          log_level_stdout     => $log_level_stdout,
+          stdout_log           => $stdout_log,
+          exclude_groups       => $exclude_groups,
+          exclude_environments => $exclude_environments,
+          strip_fields         => $strip_fields,
+          split_files          => $split_files,
         },
       })
     ;

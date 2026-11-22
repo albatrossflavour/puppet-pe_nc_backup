@@ -112,16 +112,14 @@ module PeNcBackup
   # every hash by key, so unchanged data always serialises to the same bytes.
   # Arrays keep their order, since order matters in a rule.
   class Filter
-    def initialize(exclude_groups: [], strip_fields: [])
-      @exclude = exclude_groups.map { |pattern| Regexp.new(pattern) }
+    def initialize(exclude_groups: [], exclude_environments: [], strip_fields: [])
+      @exclude = { 'name' => compile(exclude_groups, 'exclude_groups'), 'environment' => compile(exclude_environments, 'exclude_environments') }
       @strip = strip_fields
-    rescue RegexpError => e
-      raise Error, "Invalid exclude_groups pattern: #{e.message}"
     end
 
     def apply(groups)
-      kept = groups.reject { |group| @exclude.any? { |re| re.match?(group['name'].to_s) } }
-      raise Error, "exclude_groups matched all #{groups.size} node groups, refusing to write an empty backup" if kept.empty?
+      kept = groups.reject { |group| excluded?(group) }
+      raise Error, "exclude_groups and exclude_environments matched all #{groups.size} node groups, refusing to write an empty backup" if kept.empty?
 
       kept.map { |group| normalise(group) }.sort_by { |group| [group['id'].to_s, group['name'].to_s] }
     end
@@ -132,6 +130,18 @@ module PeNcBackup
     end
 
     private
+
+    def compile(patterns, setting)
+      patterns.map { |pattern| Regexp.new(pattern) }
+    rescue RegexpError => e
+      raise Error, "Invalid #{setting} pattern: #{e.message}"
+    end
+
+    # Excluded when the group's name matches an exclude_groups pattern or its
+    # environment matches an exclude_environments pattern.
+    def excluded?(group)
+      @exclude.any? { |field, patterns| patterns.any? { |re| re.match?(group[field].to_s) } }
+    end
 
     def sort_keys(value)
       case value
@@ -207,7 +217,8 @@ module PeNcBackup
     def run
       @log.info("pe_nc_backup started at #{Time.now}")
       check_repo
-      filter = Filter.new(exclude_groups: @config.fetch('exclude_groups', nil) || [], strip_fields: @config.fetch('strip_fields', nil) || [])
+      filter = Filter.new(exclude_groups: @config['exclude_groups'] || [], exclude_environments: @config['exclude_environments'] || [],
+                          strip_fields: @config['strip_fields'] || [])
       certname = resolve_certname
       fetched = classifier(certname).groups
       groups = filter.apply(fetched)

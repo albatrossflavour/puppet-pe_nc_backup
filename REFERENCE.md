@@ -51,6 +51,7 @@ The following parameters are available in the `pe_nc_backup` class:
 * [`user`](#-pe_nc_backup--user)
 * [`group`](#-pe_nc_backup--group)
 * [`exclude_groups`](#-pe_nc_backup--exclude_groups)
+* [`exclude_environments`](#-pe_nc_backup--exclude_environments)
 * [`strip_fields`](#-pe_nc_backup--strip_fields)
 * [`split_files`](#-pe_nc_backup--split_files)
 * [`certname`](#-pe_nc_backup--certname)
@@ -161,6 +162,16 @@ Data type: `Array[String[1]]`
 Regular expressions (Ruby syntax) matched against each node group's name. Matching
 groups are left out of the backup. Leaving out a group that others inherit from means the backup can no
 longer be restored as a whole hierarchy.
+
+Default value: `[]`
+
+##### <a name="-pe_nc_backup--exclude_environments"></a>`exclude_environments`
+
+Data type: `Array[String[1]]`
+
+Regular expressions (Ruby syntax) matched against each node group's environment.
+Matching groups are left out of the backup, for example `['^rolling_deployment_']` for the short-lived groups
+that CD4PE rolling deployments create. The same restore caveat applies as for `exclude_groups`.
 
 Default value: `[]`
 

@@ -84,7 +84,15 @@ class { 'pe_nc_backup':
 }
 ```
 
-`exclude_groups` takes regular expressions in Ruby syntax, matched against group names. Leaving out a group that other groups inherit from means the backup can no longer be restored as a whole hierarchy.
+`exclude_groups` takes regular expressions in Ruby syntax, matched against group names. `exclude_environments` does the same against each group's environment, which suits the short-lived groups CD4PE rolling deployments create:
+
+```puppet
+class { 'pe_nc_backup':
+  exclude_environments => ['^rolling_deployment_'],
+}
+```
+
+Leaving out a group that other groups inherit from means the backup can no longer be restored as a whole hierarchy.
 
 Groups are always written sorted by id, with every object's keys sorted, so the same data produces the same file and no commit. The first run after upgrading to 3.0.0 may commit once to reorder the existing file.
 

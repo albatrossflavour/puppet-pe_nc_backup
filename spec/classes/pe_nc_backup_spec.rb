@@ -77,6 +77,7 @@ describe 'pe_nc_backup' do
             'log_level_stdout' => 'error',
             'stdout_log' => true,
             'exclude_groups' => [],
+            'exclude_environments' => [],
             'strip_fields' => [],
             'split_files' => false,
           )
@@ -202,12 +203,13 @@ describe 'pe_nc_backup' do
       end
 
       context 'with noise controls' do
-        let(:params) { { exclude_groups: ['^PE ', 'Test$'], strip_fields: ['serial_number', 'last_edited'] } }
+        let(:params) { { exclude_groups: ['^PE ', 'Test$'], exclude_environments: ['^rolling_deployment_'], strip_fields: ['serial_number', 'last_edited'] } }
 
         it { is_expected.to compile.with_all_deps }
 
         it 'bakes the patterns and fields into the script unchanged' do
-          expect(script_config(catalogue)).to include('exclude_groups' => ['^PE ', 'Test$'], 'strip_fields' => ['serial_number', 'last_edited'])
+          expect(script_config(catalogue)).to include('exclude_groups' => ['^PE ', 'Test$'], 'exclude_environments' => ['^rolling_deployment_'],
+                                                      'strip_fields' => ['serial_number', 'last_edited'])
         end
 
         it 'renders a script that is valid Ruby' do
@@ -250,6 +252,7 @@ describe 'pe_nc_backup' do
           { user: '' },
           { exclude_groups: 'PE' },
           { strip_fields: [''] },
+          { exclude_environments: 'rolling' },
           { split_files: 'true' },
           { log_level: 'verbose' },
         ].each do |bad|

@@ -136,13 +136,56 @@ describe 'pe_nc_backup script' do
     it 'refuses to write an empty backup when every group is excluded' do
       expect(run_backup(config.merge('exclude_groups' => ['.']))).to eq(1)
       expect(File.exist?(File.join(repo, 'node_groups.json'))).to be(false)
-      expect(stdout_io.string).to include('exclude_groups matched all 3 node groups')
+      expect(stdout_io.string).to include('exclude_groups and exclude_environments matched all 3 node groups')
     end
 
     it 'fails before fetching anything when a pattern is not a valid regex' do
       expect(run_backup(config.merge('exclude_groups' => ['(unclosed']))).to eq(1)
       expect(classifier.requests).to be_empty
       expect(stdout_io.string).to include('Invalid exclude_groups pattern')
+    end
+
+    context 'with exclude_environments' do
+      # CD4PE's rolling deployments create groups whose environment is rolling_deployment_<n>.
+      let(:groups) do
+        [
+          FakeClassifier.group('All Nodes', '0', parent: '0'),
+          FakeClassifier.group('Production', '1'),
+          FakeClassifier.group('Deployment 1234', '2', environment: 'rolling_deployment_1234'),
+          FakeClassifier.group('Production one-off', '3', environment: 'production_rolling'),
+        ]
+      end
+      let(:extra_config) { { 'exclude_environments' => ['^rolling_deployment_'] } }
+
+      it 'leaves out the groups whose environment matches' do
+        expect(run_backup).to eq(0)
+        expect(backup_json.map { |g| g['name'] }).to eq(['All Nodes', 'Production', 'Production one-off'])
+      end
+
+      it 'excludes a group that matches either setting' do
+        expect(run_backup(config.merge('exclude_groups' => ['one-off']))).to eq(0)
+        expect(backup_json.map { |g| g['name'] }).to eq(['All Nodes', 'Production'])
+      end
+
+      it 'does not match environment patterns against names' do
+        expect(run_backup(config.merge('exclude_environments' => ['^Production']))).to eq(0)
+        expect(backup_json.size).to eq(4)
+      end
+
+      it 'commits nothing when a rolling deployment group comes and goes' do
+        run_backup
+        classifier.groups = groups + [FakeClassifier.group('Deployment 1235', '4', environment: 'rolling_deployment_1235')]
+        run_backup
+        classifier.groups = groups.reject { |g| g['id'] == '2' }
+        run_backup
+        expect(commit_count(repo)).to eq(1)
+      end
+
+      it 'fails before fetching anything when a pattern is not a valid regex' do
+        expect(run_backup(config.merge('exclude_environments' => ['[']))).to eq(1)
+        expect(classifier.requests).to be_empty
+        expect(stdout_io.string).to include('Invalid exclude_environments pattern')
+      end
     end
 
     context 'with strip_fields' do
