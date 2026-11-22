@@ -141,9 +141,9 @@ class pe_nc_backup (
     require => Vcsrepo[$git_repo_dir],
   }
 
-  # Earlier releases left the repo and log world-readable. This tightens them
-  # once, and only runs again if something under the repo is group or world
-  # accessible. A recursive file resource would stat every git object on every run.
+  # Earlier releases used wider modes on the repo and log. This tightens them
+  # once, and only runs again if something under the repo has group or other
+  # permissions. A recursive file resource would stat every git object on every run.
   exec { 'pe_nc_backup make the backup private':
     command  => "chmod -R u+rwX,go-rwx '${git_repo_dir}' && find '${path}' -maxdepth 1 -name 'pe_nc_backup.log*' -exec chmod go-rwx {} +",
     onlyif   => "find '${git_repo_dir}' -perm /077 -print -quit | grep -q . || find '${path}' -maxdepth 1 -name 'pe_nc_backup.log*' -perm /077 -print -quit | grep -q .",

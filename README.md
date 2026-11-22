@@ -145,7 +145,7 @@ A backup taken with `exclude_groups` or `exclude_environments` leaves groups out
 
 Releases before 3.0.0 installed the ncio gem and used it to take the backup. 3.0.0 no longer installs or uses ncio. The backup talks to the classifier API itself, and the `pe_nc_backup::restore` task replaces `ncio restore` (see [Restoring](#restoring)). Backups taken by earlier releases restore with the task too. There's no replacement for `ncio transform`.
 
-ncio was replaced because it hasn't been released since 2018, its restore sends a file without validating it, and its backups were world-readable.
+ncio was replaced because it hasn't been released since 2018 and its restore doesn't validate its input.
 
 The module doesn't remove a copy of ncio that 2.x installed, because it can't tell that copy apart from one your site manages. If nothing else needs it, remove it on the primary with:
 

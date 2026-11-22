@@ -287,8 +287,8 @@ module PeNcBackup
       private_repo
     end
 
-    # core.sharedRepository makes git write group or world readable objects
-    # whatever the umask, so the backup turns it off.
+    # core.sharedRepository makes git write objects with group or other
+    # permissions whatever the umask, so the backup turns it off.
     def private_repo
       out, status = @repo.git('config', '--local', 'core.sharedRepository')
       return unless status.success? && !['false', 'umask', '0'].include?(out.strip.downcase)

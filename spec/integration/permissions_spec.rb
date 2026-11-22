@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'open3'
 require 'tmpdir'
 
-# Runs the exec that tightens an existing, world-readable backup left by an
+# Runs the exec that tightens the modes of an existing backup left by an
 # earlier release, against a real directory tree.
 describe 'pe_nc_backup', type: :class do
   let(:facts) { on_supported_os.values.first }
