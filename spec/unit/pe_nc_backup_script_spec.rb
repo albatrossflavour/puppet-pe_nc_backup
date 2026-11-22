@@ -75,7 +75,7 @@ describe 'pe_nc_backup script' do
 
     it 'does not leave temporary files behind' do
       run_backup
-      expect(Dir.children(path).sort).to eq(['repo'])
+      expect(Dir.children(path).sort - ['.pe_nc_backup.lock']).to eq(['repo'])
     end
   end
 
@@ -431,7 +431,7 @@ describe 'pe_nc_backup script' do
         expect(File.read(File.join(repo, 'node_groups.json'))).to eq("[\n  {\"previous\": true}\n]\n")
         expect(commit_count(repo)).to eq(1)
         expect(git(repo, 'status', '--porcelain')).to eq('')
-        expect(Dir.children(path).sort).to eq(['repo'])
+        expect(Dir.children(path).sort - ['.pe_nc_backup.lock']).to eq(['repo'])
       end
 
       it 'logs the reason to every logger' do
@@ -484,7 +484,7 @@ describe 'pe_nc_backup script' do
 
       before(:each) { classifier.delay = 3 }
 
-      it_behaves_like 'a failed backup', %r{timed out after 1 seconds}
+      it_behaves_like 'a failed backup', %r{timed out waiting for a response after 1 seconds}
     end
 
     context 'when nothing is listening' do

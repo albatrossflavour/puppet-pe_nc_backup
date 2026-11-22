@@ -12,7 +12,7 @@
     * [Scheduling with systemd](#scheduling-with-systemd)
     * [Reducing noise](#reducing-noise)
     * [One file per group](#one-file-per-group)
-    * [Restoring a backup](#restoring-a-backup)
+    * [Restoring](#restoring)
 4. [Reference](#reference)
 5. [Limitations](#limitations)
 6. [Development](#development)
@@ -106,25 +106,41 @@ class { 'pe_nc_backup':
 
 This writes each group to `groups/<name>-<id>.json` instead of a single `node_groups.json`, so `git log` shows which groups changed. Files for groups that no longer exist are removed. Whichever layout is in use, the commit message lists the groups added, changed, and removed.
 
-### Restoring a backup
+### Restoring
 
-`ncio restore` posts a backup to the classifier's import-hierarchy endpoint, which replaces every node group. Set `manage_ncio => true` to have the module install the gem. Then, as root on the primary:
+A restore replaces the ENTIRE node group hierarchy. Every group in the classifier is deleted and replaced with the groups in the backup, through PE's `import-hierarchy` endpoint. Groups created since the backup are lost, and so is any change made since. Nodes are reclassified on their next run.
 
-```shell
-CERTNAME=$(puppet config print certname)
-SSLDIR=/etc/puppetlabs/puppet/ssl
-/opt/puppetlabs/puppet/bin/ncio --uri "https://${CERTNAME}:4433/classifier-api/v1" \
-  --cert "${SSLDIR}/certs/${CERTNAME}.pem" --key "${SSLDIR}/private_keys/${CERTNAME}.pem" \
-  restore --file /opt/pe_nc_backup/repo/node_groups.json
-```
-
-With `split_files`, join the files back into one array first:
+The `pe_nc_backup::restore` task does this from a commit in the backup repo. Run it against the primary server. By default it's a dry run, which checks the backup and lists the groups it would add, remove, and change:
 
 ```shell
-jq -s . /opt/pe_nc_backup/repo/groups/*.json > /tmp/node_groups.json
+puppet task run pe_nc_backup::restore --nodes primary.example.com --params '{"commit": "HEAD~3"}'
 ```
 
-A backup taken with `exclude_groups` or `strip_fields` leaves things out, so check it is complete enough before restoring from it.
+To restore for real, set `dry_run` to false and `confirm` to `replace-entire-classifier`:
+
+```shell
+puppet task run pe_nc_backup::restore --nodes primary.example.com \
+  --params '{"commit": "HEAD~3", "dry_run": false, "confirm": "replace-entire-classifier"}'
+```
+
+Anything other than a JSON `false` for `dry_run` leaves it a dry run.
+
+Before it sends anything, the task:
+
+* rebuilds the groups from either layout, `node_groups.json` or `groups/`
+* checks they're a valid hierarchy: a non-empty array with exactly one root (All Nodes, as its own parent), every parent present, and no cycles
+* refuses if the backup has more than `max_count_drop` percent (default 10) fewer groups than the live classifier, unless `force` is set
+* commits the live classifier to the repo as a "Pre-restore backup" commit, so a bad restore can be undone by running the task again with that commit
+
+After the import it reads the groups back, and only reports success if they match the backup, ignoring the fields the classifier manages itself. If the import fails, the error names the pre-restore commit.
+
+The import is sent once and never retried. Increase `read_timeout` (default 600 seconds) for a very large hierarchy.
+
+PE's import-hierarchy documentation says every field of every group must be given. A backup taken with `strip_fields` may lack `serial_number` and `last_edited`, so the task takes them from the live group with the same id, or treats the group as new. This hasn't been verified against a real PE yet.
+
+A backup taken with `exclude_groups` or `exclude_environments` leaves groups out, so restoring it deletes those groups. Children of an excluded group fail the hierarchy check.
+
+`ncio restore` still works on these backups if you'd rather use it. Set `manage_ncio => true` to have the module install the gem.
 
 ## Reference
 

@@ -11,8 +11,8 @@ require 'webrick/https'
 # client certificate for the given certname, and lays them out like a Puppet
 # ssl directory. Client certificates are required, as they are on PE.
 class FakeClassifier
-  attr_reader :ssl_dir, :port, :requests
-  attr_accessor :groups, :status, :body, :delay
+  attr_reader :ssl_dir, :port, :requests, :imports
+  attr_accessor :groups, :status, :body, :delay, :import_status, :import_body, :import_delay, :import_partial, :after_import
 
   # ca names the CA key to sign with, so a test can build a second CA that the
   # first one does not trust.
@@ -25,6 +25,11 @@ class FakeClassifier
     @body = nil
     @delay = 0
     @requests = []
+    @imports = []
+    @import_status = 204
+    @import_body = nil
+    @import_delay = 0
+    @import_partial = false
     build_ssl
   end
 
@@ -42,6 +47,7 @@ class FakeClassifier
     )
     @port = @server.listeners.first.addr[1]
     @server.mount_proc('/classifier-api/v1/groups') { |req, res| respond(req, res) }
+    @server.mount_proc('/classifier-api/v1/import-hierarchy') { |req, res| import(req, res) }
     @thread = Thread.new { @server.start }
     self
   end
@@ -84,6 +90,34 @@ class FakeClassifier
     res.status = @status
     res['Content-Type'] = 'application/json'
     res.body = @body || JSON.generate(@groups)
+  end
+
+  # Like PE, which per its docs supplies no defaults, it rejects groups missing
+  # serial_number or last_edited, and echoes them back in the error. On success
+  # it replaces the groups and sets the server-managed fields itself.
+  # import_partial applies half the groups and then fails, as a crash mid-way might.
+  def import(req, res)
+    groups = JSON.parse(req.body)
+    @imports << { method: req.request_method, client_cn: client_cn(req), count: groups.size }
+    sleep(@import_delay) if @import_delay.positive?
+    res['Content-Type'] = 'application/json'
+    incomplete = groups.reject { |g| g.key?('serial_number') && g.key?('last_edited') }
+    if !incomplete.empty?
+      res.status = 400
+      res.body = JSON.generate('kind' => 'schema-violation', 'msg' => 'The object(s) in your submitted request did not conform to the schema.',
+                               'details' => { 'submitted' => incomplete, 'error' => 'missing keys' })
+    elsif @import_partial
+      @groups = groups.first(groups.size / 2)
+      res.status = 500
+      res.body = JSON.generate('kind' => 'application-error', 'msg' => 'import failed part way')
+    elsif @import_status == 204
+      @groups = groups.map { |g| g.merge('serial_number' => g['serial_number'].to_i + 1, 'last_edited' => Time.now.utc.strftime('%Y-%m-%dT%H:%M:%S.%LZ')) }
+      @groups = @after_import.call(@groups) if @after_import
+      res.status = 204
+    else
+      res.status = @import_status
+      res.body = @import_body || JSON.generate('kind' => 'application-error', 'msg' => 'import refused', 'details' => { 'submitted' => groups })
+    end
   end
 
   def client_cn(req)

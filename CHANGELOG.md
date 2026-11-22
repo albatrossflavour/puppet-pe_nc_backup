@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - `exclude_groups`, `exclude_environments`, and `strip_fields` keep groups and fields you do not care about out of the history
 - `split_files` writes one file per group under `groups/`
 - Commit messages list the groups added, changed, and removed
+- The `pe_nc_backup::restore` task restores a backup commit through import-hierarchy, as a dry run unless confirmed, after validating the hierarchy and committing the live classifier first. It replaces the entire node group hierarchy
 - Commits as `pe_nc_backup` when the backup user has no git identity
 - CI moved to GitHub Actions
 

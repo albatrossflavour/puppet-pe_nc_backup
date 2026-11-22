@@ -8,6 +8,10 @@
 
 * [`pe_nc_backup`](#pe_nc_backup): Creates backups of Puppet Enterprise's Node Classifier as json in a git repo.
 
+### Tasks
+
+* [`restore`](#restore): Restores the PE node classifier from a commit in the pe_nc_backup repo. A real restore REPLACES THE ENTIRE NODE GROUP HIERARCHY through impor
+
 ## Classes
 
 ### <a name="pe_nc_backup"></a>`pe_nc_backup`
@@ -246,4 +250,86 @@ Whether to install the ncio gem. The backup no longer uses it, but `ncio restore
 still a convenient way to restore a backup.
 
 Default value: `false`
+
+## Tasks
+
+### <a name="restore"></a>`restore`
+
+Restores the PE node classifier from a commit in the pe_nc_backup repo. A real restore REPLACES THE ENTIRE NODE GROUP HIERARCHY through import-hierarchy. It runs as a dry run by default, showing which groups would be added, removed, or changed. To restore, set dry_run to false and confirm to 'replace-entire-classifier'. The live classifier is committed to the repo first, so a bad restore can be undone with this task. Run it on the PE primary server.
+
+**Supports noop?** false
+
+#### Parameters
+
+##### `commit`
+
+Data type: `Optional[String[1]]`
+
+The commit in the backup repo to restore, for example a commit id or HEAD~3. Defaults to HEAD.
+
+##### `dry_run`
+
+Data type: `Optional[Boolean]`
+
+Report what would change without changing anything. Defaults to true.
+
+##### `confirm`
+
+Data type: `Optional[String]`
+
+Must be 'replace-entire-classifier' for a real restore.
+
+##### `max_count_drop`
+
+Data type: `Optional[Integer[0, 100]]`
+
+Refuse to restore if the backup has more than this percentage fewer groups than the live classifier. Defaults to 10.
+
+##### `force`
+
+Data type: `Optional[Boolean]`
+
+Restore even if the group count drops by more than max_count_drop. The other checks still apply.
+
+##### `read_timeout`
+
+Data type: `Optional[Integer[1]]`
+
+Seconds to wait for the classifier to respond, including to the import. Defaults to 600.
+
+##### `timeout`
+
+Data type: `Optional[Integer[1]]`
+
+Seconds to wait when connecting to the classifier. Defaults to 60.
+
+##### `path`
+
+Data type: `Optional[String[1]]`
+
+The pe_nc_backup directory. Defaults to /opt/pe_nc_backup.
+
+##### `certname`
+
+Data type: `Optional[String[1]]`
+
+The primary's certname, which names its certificate and key. Defaults to puppet config print certname.
+
+##### `ssl_dir`
+
+Data type: `Optional[String[1]]`
+
+The primary's Puppet ssl directory. Defaults to /etc/puppetlabs/puppet/ssl.
+
+##### `classifier_host`
+
+Data type: `Optional[String[1]]`
+
+The host serving the classifier API. Defaults to the certname.
+
+##### `classifier_port`
+
+Data type: `Optional[Integer[1, 65535]]`
+
+The classifier API port. Defaults to 4433.
 
